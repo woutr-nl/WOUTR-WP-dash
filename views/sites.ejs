@@ -6,14 +6,22 @@
   <p class="empty">Nog geen sites. Voeg de eerste site toe.</p>
 <% } else { %>
   <table class="sites">
-    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th></th></tr></thead>
+    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th></th></tr></thead>
     <tbody>
     <% for (const s of sites) { %>
       <tr>
         <td data-label="Site"><strong><%= s.site_title %></strong><br><a href="<%= s.site_url %>" target="_blank" rel="noopener"><%= s.site_url %></a></td>
         <td data-label="Klant-slug"><code><%= s.client_slug %></code></td>
         <td data-label="Thematype"><%= s.theme_type === 'bricks' ? 'Bricks' : 'Blokthema' %></td>
+        <td data-label="Laatste run">
+          <% if (s.last_run_id) { %>
+            <a href="/sites/<%= s.id %>/runs/<%= s.last_run_id %>"><%= ACTION_LABEL[s.last_action] %></a>
+            <span class="badge <%= s.last_status %>"><%= STATUS_LABEL[s.last_status] %></span><br>
+            <small><%= fmtDate(s.last_started_at) %></small>
+          <% } else { %><span class="empty">nog geen</span><% } %>
+        </td>
         <td class="actions">
+          <a class="button" href="/sites/<%= s.id %>/runs">Runs</a>
           <a class="button secondary" href="/sites/<%= s.id %>/edit">Bewerken</a>
           <form method="post" action="/sites/<%= s.id %>/delete" data-confirm="Site &quot;<%= s.site_title %>&quot; verwijderen?">
             <button type="submit" class="danger">Verwijderen</button>

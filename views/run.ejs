@@ -1,0 +1,90 @@
+<%
+  const res = run.result ?? {};
+  const checks = Object.keys(res).filter((k) => k.startsWith('check_'));
+  const checkState = (v) => v === 'pass' ? ['pass', '✓ geslaagd'] : v.startsWith('fail') ? ['fail', '✗ mislukt' + (v.includes(':') ? ` (${v.slice(v.indexOf(':') + 1)})` : '')] : ['skip', 'niet gecontroleerd'];
+  const hostKeyChanged = run.log.includes('REMOTE HOST IDENTIFICATION HAS CHANGED');
+%>
+<div class="bar">
+  <h1><%= ACTION_LABEL[run.action] %> #<%= run.id %>: <%= site.site_title %></h1>
+  <span class="badge <%= run.status %>" id="status"><%= STATUS_LABEL[run.status] %></span>
+</div>
+<p>
+  Gestart <%= fmtDate(run.started_at) %><% if (run.finished_at) { %>, klaar <%= fmtDate(run.finished_at) %><% } %>
+  <% if (run.exit_code !== null) { %> · exitcode <%= run.exit_code %><% } %>
+  <br>Keuzes: <%= describeOptions(run.action, run.options).join(', ') || '—' %>
+</p>
+<% if (run.status === 'interrupted') { %>
+  <p class="notice">Deze run is afgebroken (bijv. doordat het dashboard herstartte). Controleer de site en start zo nodig opnieuw.</p>
+<% } %>
+<% if (hostKeyChanged) { %>
+  <p class="error">De SSH-hostsleutel van deze server is veranderd sinds de eerste verbinding. Er is geen verbinding gemaakt. Controleer bij de hosting of dit klopt; pas daarna kan de oude sleutel uit <code>/data/ssh/known_hosts</code> worden verwijderd.</p>
+<% } %>
+
+<% if (run.status === 'needs_confirmation' && run.action === 'deploy') { %>
+  <div class="confirm">
+    <p><strong>Bestaande site gevonden</strong> op <code><%= site.ssh_target %>:<%= site.wp_path %></code>. Zie het log hieronder voor wat er staat. Er is niets gewijzigd.</p>
+    <% if (canConfirm) { %>
+      <form method="post" action="/sites/<%= site.id %>/run/deploy"
+        data-confirm="Weet je zeker dat de site op <%= site.site_url %> volledig gewist wordt? Alle berichten, pagina's en media gaan verloren.">
+        <input type="hidden" name="retry_of" value="<%= run.id %>">
+        <input type="hidden" name="overwrite" value="1">
+        <button type="submit" class="danger">Site wissen en opnieuw deployen (--overwrite)</button>
+      </form>
+    <% } %>
+  </div>
+<% } else if (run.status === 'needs_confirmation' && run.action === 'live') { %>
+  <div class="confirm">
+    <p><strong>Controles mislukt</strong>: de indexering staat nog uit.</p>
+    <% if (canConfirm) { %>
+      <form method="post" action="/sites/<%= site.id %>/run/live"
+        data-confirm="Toch live gaan en de indexering aanzetten, ondanks de mislukte controles?">
+        <input type="hidden" name="retry_of" value="<%= run.id %>">
+        <input type="hidden" name="force" value="1">
+        <button type="submit" class="danger">Toch live gaan (--force)</button>
+      </form>
+    <% } %>
+  </div>
+<% } %>
+
+<% if (checks.length) { %>
+  <h2>Controles</h2>
+  <ul class="checks">
+    <% for (const k of checks) { const [cls, label] = checkState(res[k]); %>
+      <li class="<%= cls %>"><code><%= k %></code>: <%= label %></li>
+    <% } %>
+  </ul>
+<% } %>
+<% if (res.already_live === 'yes') { %><p><span class="badge success">Al live</span></p><% } %>
+
+<% if (Object.keys(res).length) { %>
+  <h2>Resultaat</h2>
+  <table class="result">
+    <% for (const [k, v] of Object.entries(res)) { %>
+      <tr class="<%= k === 'error' || k === 'failed_step' ? 'error' : '' %>"><th><code><%= k %></code></th><td><%= v %></td></tr>
+    <% } %>
+  </table>
+<% } %>
+
+<h2>Log</h2>
+<pre class="log" id="log"><%= run.log %></pre>
+<p><a href="/sites/<%= site.id %>/runs">← Geschiedenis van <%= site.site_title %></a></p>
+
+<% if (run.status === 'running') { %>
+<script>
+  // ponytail: polling, SSE if 2s latency ever hurts.
+  const pre = document.getElementById('log');
+  const poll = async () => {
+    try {
+      const res = await fetch('/sites/<%= site.id %>/runs/<%= run.id %>.json');
+      const data = await res.json();
+      if (data.log.length > pre.textContent.length) {
+        pre.append(data.log.slice(pre.textContent.length));
+        pre.scrollTop = pre.scrollHeight;
+      }
+      if (data.status !== 'running') return location.reload();
+    } catch { /* retry next tick */ }
+    setTimeout(poll, 2000);
+  };
+  setTimeout(poll, 2000);
+</script>
+<% } %>
