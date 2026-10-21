@@ -1,0 +1,11 @@
+<h1>Inloggen</h1>
+<form method="post" action="/login" class="narrow">
+  <% if (error) { %><p class="error"><%= error %></p><% } %>
+  <label>Gebruikersnaam
+    <input name="username" value="<%= username %>" autocomplete="username" required autofocus>
+  </label>
+  <label>Wachtwoord
+    <input name="password" type="password" autocomplete="current-password" required>
+  </label>
+  <button type="submit">Inloggen</button>
+</form>

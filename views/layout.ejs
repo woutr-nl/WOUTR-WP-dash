@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %> · WOUTR-WP dashboard</title>
+  <link rel="stylesheet" href="/public/style.css">
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">WOUTR-WP dashboard</a>
+    <% if (loggedIn) { %>
+      <form method="post" action="/logout"><button type="submit" class="link">Uitloggen</button></form>
+    <% } %>
+  </header>
+  <main>
+<%- body %>
+  </main>
+  <script>
+    document.addEventListener('submit', (e) => {
+      const msg = e.target.dataset.confirm;
+      if (msg && !confirm(msg)) e.preventDefault();
+    });
+  </script>
+</body>
+</html>
