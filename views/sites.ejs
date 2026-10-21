@@ -1,0 +1,26 @@
+<div class="bar">
+  <h1>Sites</h1>
+  <a class="button" href="/sites/new">Site toevoegen</a>
+</div>
+<% if (!sites.length) { %>
+  <p class="empty">Nog geen sites. Voeg de eerste site toe.</p>
+<% } else { %>
+  <table class="sites">
+    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th></th></tr></thead>
+    <tbody>
+    <% for (const s of sites) { %>
+      <tr>
+        <td data-label="Site"><strong><%= s.site_title %></strong><br><a href="<%= s.site_url %>" target="_blank" rel="noopener"><%= s.site_url %></a></td>
+        <td data-label="Klant-slug"><code><%= s.client_slug %></code></td>
+        <td data-label="Thematype"><%= s.theme_type === 'bricks' ? 'Bricks' : 'Blokthema' %></td>
+        <td class="actions">
+          <a class="button secondary" href="/sites/<%= s.id %>/edit">Bewerken</a>
+          <form method="post" action="/sites/<%= s.id %>/delete" data-confirm="Site &quot;<%= s.site_title %>&quot; verwijderen?">
+            <button type="submit" class="danger">Verwijderen</button>
+          </form>
+        </td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+<% } %>

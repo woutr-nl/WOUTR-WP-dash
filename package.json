@@ -1,0 +1,19 @@
+{
+  "name": "woutr-wp-dash",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cookie-session": "^2.1.1",
+    "ejs": "^3.1.10",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  }
+}
