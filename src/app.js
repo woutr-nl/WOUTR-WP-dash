@@ -162,7 +162,11 @@ export function createApp() {
     if (!column || !/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Niet gevonden.' });
     const { rows } = await pool.query(`SELECT ${column} AS enc FROM sites WHERE id = $1`, [req.params.id]);
     if (!rows[0]?.enc) return res.status(404).json({ error: 'Niet gevonden.' });
-    res.json({ value: decrypt(rows[0].enc, config.encryptionKey) });
+    try {
+      res.json({ value: decrypt(rows[0].enc, config.encryptionKey) });
+    } catch {
+      res.status(500).json({ error: 'Kan niet ontsleutelen — klopt ENCRYPTION_KEY?' });
+    }
   });
 
   const notFound = (res) => res.status(404).type('text').send('Niet gevonden.');

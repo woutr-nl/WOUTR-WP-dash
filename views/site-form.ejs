@@ -110,7 +110,8 @@
     btn.addEventListener('click', async () => {
       const out = document.getElementById(btn.dataset.target);
       const res = await fetch(btn.dataset.reveal, { method: 'POST' });
-      out.value = res.ok ? (await res.json()).value : 'Kon niet ophalen';
+      const data = await res.json().catch(() => ({}));
+      out.value = res.ok ? data.value : (data.error ?? 'Kon niet ophalen');
       out.hidden = false;
     });
   });
