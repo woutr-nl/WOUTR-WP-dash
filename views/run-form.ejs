@@ -1,0 +1,70 @@
+<%
+  const block = site.theme_type !== 'bricks';
+  const ENV_LABEL = { WP_DB_PASS: 'databasewachtwoord (WP_DB_PASS)', WOUTR_SMTP_PASS: 'SMTP-wachtwoord (WOUTR_SMTP_PASS)', BRICKS_LICENSE_KEY: 'Bricks-licentiesleutel (BRICKS_LICENSE_KEY)' };
+  const select = (name, label, versions, current) => { %>
+    <label><%= label %>
+      <select name="<%= name %>" data-installed>
+        <option value="">nieuwste</option>
+        <% for (const v of versions) { %><option value="<%= v %>"<%= isRollback(v, current) ? ' data-rollback' : '' %>><%= v %><%= v === current ? ' (geïnstalleerd)' : '' %></option><% } %>
+      </select>
+    </label>
+<% }; %>
+<h1><%= ACTION_LABEL[action] %>: <%= site.site_title %></h1>
+<p><a href="<%= site.site_url %>" target="_blank" rel="noopener"><%= site.site_url %></a> · <code><%= site.client_slug %></code> · <%= block ? 'Blokthema' : 'Bricks' %> · <code><%= site.ssh_target %>:<%= site.wp_path %></code></p>
+<% if (busy) { %><p class="error">Er is al een run bezig voor deze site; een nieuwe run wordt geweigerd.</p><% } %>
+<% if (releaseError) { %><p class="notice"><%= releaseError %></p><% } %>
+
+<form method="post" action="/sites/<%= site.id %>/run/<%= action %>" class="site-form">
+  <% if (action === 'deploy' || action === 'update') { %>
+    <fieldset>
+      <legend>Versies</legend>
+      <% if (action === 'update') { %>
+        <p>Geïnstalleerd: thema <strong><%= installed.theme || 'onbekend' %></strong><% if (block) { %>, woutr <strong><%= installed.parent || 'onbekend' %></strong><% } %>.</p>
+      <% } %>
+      <% select('version', `Child-thema (${site.client_slug})`, releases.theme, action === 'update' && installed.theme) %>
+      <% if (block) select('parent_version', 'Parent-thema woutr', releases.parent, action === 'update' && installed.parent) %>
+      <p id="rollback" class="notice" hidden><strong>Terugrol (rollback)</strong>: je kiest een oudere versie dan geïnstalleerd.</p>
+    </fieldset>
+  <% } %>
+
+  <% if (action === 'deploy') { %>
+    <fieldset>
+      <legend>Instellingen</legend>
+      <p>Gebruikt de gegevens van de site<%= block && site.smtp_host ? ', inclusief de SMTP-instellingen' : '' %>.</p>
+      <p>Geheimen (alleen via omgevingsvariabelen): <%= envNames.length ? envNames.map((n) => ENV_LABEL[n]).join(', ') : 'geen' %>.</p>
+      <p>Staat er al een site met inhoud, dan stopt de deploy en vraagt het dashboard om bevestiging voordat er iets gewist wordt.</p>
+    </fieldset>
+  <% } else if (action === 'update' && block && site.smtp_host) { %>
+    <fieldset>
+      <legend>SMTP</legend>
+      <label class="inline"><input type="checkbox" name="apply_smtp" value="1"> SMTP-instellingen opnieuw toepassen</label>
+    </fieldset>
+  <% } else if (action === 'live') { %>
+    <fieldset>
+      <legend>Controles</legend>
+      <% if (live) { %><p><span class="badge success">Al live</span> De laatste go-live is geslaagd.</p><% } %>
+      <ul>
+        <li>HTTPS werkt (<code>check_https</code>)</li>
+        <li>Debugmodus staat uit (<code>check_debug</code>)</li>
+        <li>SMTP is ingesteld (<code>check_smtp</code><%= block ? '' : ', niet gecontroleerd bij Bricks' %>)</li>
+      </ul>
+      <p>Slaagt alles, dan gaat de indexering aan. Mislukt een controle, dan blijft de indexering uit.</p>
+    </fieldset>
+  <% } %>
+
+  <div class="bar">
+    <button type="submit">Starten</button>
+    <a href="/sites/<%= site.id %>/runs">Annuleren</a>
+  </div>
+</form>
+
+<% if (action === 'update') { %>
+<script>
+  // Rollback flags are precomputed server-side per option (isRollback); the POST recomputes them authoritatively.
+  const selects = document.querySelectorAll('select[data-installed]');
+  const sync = () => {
+    document.getElementById('rollback').hidden = ![...selects].some((s) => 'rollback' in s.selectedOptions[0].dataset);
+  };
+  selects.forEach((s) => s.addEventListener('change', sync));
+</script>
+<% } %>

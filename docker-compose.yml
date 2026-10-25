@@ -12,6 +12,8 @@ services:
       SSH_PRIVATE_KEY: ${SSH_PRIVATE_KEY:?}
       GITHUB_TOKEN: ${GITHUB_TOKEN:?}
       BRICKS_LICENSE_KEY: ${BRICKS_LICENSE_KEY:?}
+    volumes:
+      - appdata:/data
     depends_on:
       db:
         condition: service_healthy
@@ -32,3 +34,4 @@ services:
     restart: unless-stopped
 volumes:
   dbdata:
+  appdata:

@@ -29,4 +29,23 @@ export async function initDb() {
       created_at      timestamptz NOT NULL DEFAULT now(),
       updated_at      timestamptz NOT NULL DEFAULT now()
     )`);
+  await pool.query(`
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS admin_pass_enc text;
+    CREATE TABLE IF NOT EXISTS runs (
+      id          serial PRIMARY KEY,
+      site_id     integer NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+      action      text NOT NULL CHECK (action IN ('deploy','update','live')),
+      status      text NOT NULL DEFAULT 'running'
+                  CHECK (status IN ('running','success','failed','needs_confirmation','interrupted')),
+      options     jsonb NOT NULL DEFAULT '{}',
+      result      jsonb,
+      exit_code   integer,
+      log         text NOT NULL DEFAULT '',
+      started_at  timestamptz NOT NULL DEFAULT now(),
+      finished_at timestamptz
+    );
+    CREATE INDEX IF NOT EXISTS runs_site_id_idx ON runs (site_id, id DESC);
+    -- A run still 'running' at boot was cut off by a restart.
+    UPDATE runs SET status = 'interrupted', finished_at = now() WHERE status = 'running';
+  `);
 }

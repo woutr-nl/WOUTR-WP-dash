@@ -1,0 +1,45 @@
+<div class="bar">
+  <h1><%= site.site_title %> <% if (live) { %><span class="badge success">Al live</span><% } %></h1>
+  <div class="actions">
+    <a class="button" href="/sites/<%= site.id %>/run/deploy">Deployen</a>
+    <a class="button" href="/sites/<%= site.id %>/run/update">Bijwerken</a>
+    <a class="button" href="/sites/<%= site.id %>/run/live">Live gaan</a>
+  </div>
+</div>
+<p><a href="<%= site.site_url %>" target="_blank" rel="noopener"><%= site.site_url %></a> · <code><%= site.client_slug %></code> · <%= site.theme_type === 'bricks' ? 'Bricks' : 'Blokthema' %></p>
+<% if (busy) { %><p class="notice">Er is nu een run bezig voor deze site.</p><% } %>
+<% if (site.has_admin_pass) { %>
+  <div class="secret-actions">
+    <span>WordPress-beheerderswachtwoord (<code><%= site.admin_user %></code>):</span>
+    <button type="button" class="secondary" data-reveal="/sites/<%= site.id %>/reveal/admin_pass" data-target="admin_pass_shown">Toon</button>
+    <input id="admin_pass_shown" readonly hidden aria-label="Beheerderswachtwoord (getoond)">
+  </div>
+<% } %>
+
+<h2>Geschiedenis</h2>
+<% if (!runs.length) { %>
+  <p class="empty">Nog geen runs voor deze site.</p>
+<% } else { %>
+  <table class="sites">
+    <thead><tr><th>Run</th><th>Actie</th><th>Status</th><th>Keuzes</th><th>Resultaat</th><th>Start / einde</th><th>Exitcode</th></tr></thead>
+    <tbody>
+    <% for (const r of runs) { const res = r.result ?? {}; %>
+      <tr>
+        <td data-label="Run"><a href="/sites/<%= site.id %>/runs/<%= r.id %>">#<%= r.id %></a></td>
+        <td data-label="Actie"><%= ACTION_LABEL[r.action] %></td>
+        <td data-label="Status"><span class="badge <%= r.status %>"><%= STATUS_LABEL[r.status] %></span></td>
+        <td data-label="Keuzes"><%= describeOptions(r.action, r.options).join(', ') %></td>
+        <td data-label="Resultaat">
+          <% if (res.theme_version) { %>thema <%= res.previous_theme_version ? res.previous_theme_version + ' → ' : '' %><%= res.theme_version %><br><% } %>
+          <% if (res.parent_version) { %><%= res.parent_theme || 'woutr' %> <%= res.previous_parent_version ? res.previous_parent_version + ' → ' : '' %><%= res.parent_version %><br><% } %>
+          <% if (res.indexing) { %>indexering <%= res.indexing %><br><% } %>
+          <% if (res.failed_step) { %><span class="error"><%= res.failed_step %>: <%= res.error %></span><% } %>
+        </td>
+        <td data-label="Start / einde"><small><%= fmtDate(r.started_at) %><br><%= fmtDate(r.finished_at) %></small></td>
+        <td data-label="Exitcode"><%= r.exit_code ?? '' %></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+<% } %>
+<p><a href="/">← Alle sites</a></p>

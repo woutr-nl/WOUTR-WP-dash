@@ -37,3 +37,21 @@ p.error { font-weight: 600; }
   .actions { text-align: left; padding-bottom: .75rem !important; }
   .sites a { word-break: break-all; }
 }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
+.badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 600; background: #e3e3e8; color: #1d1d1f; vertical-align: middle; }
+.badge.success { background: #d7f0dc; color: #1b5e20; }
+.badge.failed { background: #fbd9d9; color: #b71c1c; }
+.badge.running { background: #d6e4fb; color: #0b3d91; }
+.badge.needs_confirmation { background: #fff1c2; color: #7a5200; }
+.badge.interrupted { background: #ececec; color: #555; }
+.notice { padding: .5rem .75rem; border-radius: 6px; background: #fff7d6; }
+.confirm { padding: .75rem 1rem; border: 2px solid #c62828; border-radius: 8px; background: #fff; margin: 1rem 0; }
+.confirm form { margin: 0; }
+.log { max-height: 32rem; overflow: auto; padding: .75rem; border-radius: 8px; background: #1d1d1f; color: #e8e8e8; font-size: .85rem; white-space: pre-wrap; word-break: break-word; }
+.result { border-collapse: collapse; background: #fff; border-radius: 8px; }
+.result th, .result td { padding: .35rem .75rem; text-align: left; border-bottom: 1px solid #e5e5ea; vertical-align: top; }
+.result tr.error td { color: #c62828; font-weight: 600; }
+.checks { list-style: none; padding: 0; }
+.checks .pass { color: #1b5e20; }
+.checks .fail { color: #c62828; font-weight: 600; }
+.checks .skip { color: #6e6e73; }

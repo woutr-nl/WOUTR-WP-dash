@@ -21,6 +21,16 @@
       const msg = e.target.dataset.confirm;
       if (msg && !confirm(msg)) e.preventDefault();
     });
+    // "Toon": fetch the decrypted secret on explicit request only.
+    document.querySelectorAll('button[data-reveal]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const out = document.getElementById(btn.dataset.target);
+        const res = await fetch(btn.dataset.reveal, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        out.value = res.ok ? data.value : (data.error ?? 'Kon niet ophalen');
+        out.hidden = false;
+      });
+    });
   </script>
 </body>
 </html>
