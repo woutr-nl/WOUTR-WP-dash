@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import express from 'express';
 import cookieSession from 'cookie-session';
@@ -8,6 +8,7 @@ import { encrypt, decrypt } from './crypto.js';
 import { validateSite } from './validate.js';
 import { ACTIONS, buildEnvNames, isRollback } from './runs.js';
 import { startRun, isBusy, listReleases } from './runner.js';
+import { createLimiter } from './limiter.js';
 
 const root = new URL('..', import.meta.url).pathname;
 
@@ -26,10 +27,16 @@ const PLAIN = ['client_slug', 'theme_type', 'ssh_target', 'wp_path', 'site_url',
 const sha = (s) => createHash('sha256').update(String(s ?? '')).digest();
 const same = (a, b) => timingSafeEqual(sha(a), sha(b));
 
-// ponytail: in-memory, single instance — move to the DB if the app ever runs replicated.
-const failures = new Map(); // ip -> { count, first, blockedUntil }
-const WINDOW = 15 * 60 * 1000;
-const MAX_FAILURES = 5;
+const limiter = createLimiter();
+
+const SESSION_TTL = 12 * 60 * 60 * 1000;
+// Binds a session to the current ADMIN_PASSWORD: changing it logs every session out.
+const pwTag = () => createHmac('sha256', config.sessionSecret).update(config.adminPassword).digest('base64url').slice(0, 16);
+// Logout revokes every session issued before it (single admin).
+// ponytail: in-memory, lost on restart — old cookies then still expire by SESSION_TTL.
+let revokedBefore = 0;
+const validSession = (s, now = Date.now()) => s?.user === config.adminUser && Number.isFinite(s.iat)
+  && s.iat > revokedBefore && now - s.iat < SESSION_TTL && s.pw === pwTag();
 
 export function createApp() {
   const app = express();
@@ -64,50 +71,63 @@ export function createApp() {
     keys: [config.sessionSecret],
     httpOnly: true,
     sameSite: 'lax',
-    maxAge: 12 * 60 * 60 * 1000,
+    maxAge: SESSION_TTL,
   }));
   app.use((req, res, next) => {
     req.sessionOptions.secure = req.secure;
     res.set('Cache-Control', 'no-store');
     next();
   });
+  // CSRF: state-changing requests must come from this origin. Browsers always send
+  // Sec-Fetch-Site and/or Origin on POST; requests with neither are not from a browser.
+  app.use((req, res, next) => {
+    if (req.method !== 'POST') return next();
+    const site = req.get('sec-fetch-site');
+    const origin = req.get('origin');
+    let ok = true;
+    if (site) ok = site === 'same-origin' || site === 'none';
+    else if (origin) {
+      try { ok = new URL(origin).host === req.get('host'); } catch { ok = false; }
+    }
+    if (!ok) return res.status(403).type('text').send('Verzoek van een andere site geweigerd.');
+    next();
+  });
 
   const render = (res, view, locals = {}, status = 200) => {
     res.app.render(view, locals, (err, body) => {
       if (err) return res.req.next(err);
-      res.status(status).render('layout', { ...locals, body, loggedIn: !!res.req.session?.user });
+      res.status(status).render('layout', { ...locals, body, loggedIn: validSession(res.req.session) });
     });
   };
 
   app.get('/login', (req, res) => render(res, 'login', { title: 'Inloggen', error: null, username: '' }));
 
   app.post('/login', async (req, res) => {
-    const now = Date.now();
     const ip = req.ip;
-    const entry = failures.get(ip);
-    if (entry?.blockedUntil > now) {
+    if (limiter.blocked(ip)) {
       return render(res, 'login', { title: 'Inloggen', error: 'Te veel mislukte pogingen, probeer het later opnieuw.', username: '' }, 429);
     }
     const { username = '', password = '' } = req.body ?? {};
     const okUser = same(username, config.adminUser);
     const okPass = same(password, config.adminPassword);
     if (okUser && okPass) {
-      failures.delete(ip);
-      req.session = { user: config.adminUser };
+      limiter.success(ip);
+      req.session = { user: config.adminUser, iat: Date.now(), pw: pwTag() };
       return res.redirect('/');
     }
-    for (const [k, v] of failures) if (now - v.first > WINDOW && !(v.blockedUntil > now)) failures.delete(k);
-    const f = failures.get(ip) ?? { count: 0, first: now, blockedUntil: 0 };
-    f.count += 1;
-    if (f.count >= MAX_FAILURES) f.blockedUntil = now + WINDOW;
-    failures.set(ip, f);
+    limiter.fail(ip);
     await sleep(500);
     render(res, 'login', { title: 'Inloggen', error: 'Onjuiste gebruikersnaam of wachtwoord.', username: String(username) }, 401);
   });
 
-  app.use((req, res, next) => (req.session?.user ? next() : res.redirect('/login')));
+  app.use((req, res, next) => {
+    if (validSession(req.session)) return next();
+    req.session = null;
+    res.redirect('/login');
+  });
 
   app.post('/logout', (req, res) => {
+    revokedBefore = Date.now();
     req.session = null;
     res.redirect('/login');
   });
@@ -133,7 +153,7 @@ export function createApp() {
   }
 
   async function save(req, res, existing) {
-    const { values, errors } = validateSite(req.body ?? {});
+    const { values, errors } = validateSite(req.body ?? {}, { hasSmtpPass: existing?.has_smtp_pass });
     // Re-render with what was entered (never the secrets).
     const redisplay = () => render(res, 'site-form', formLocals({
       ...(existing ?? emptySite), ...pick(req.body ?? {}, PLAIN), id: existing?.id,
