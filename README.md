@@ -20,7 +20,7 @@ Ontbreekt een verplichte variabele of is die ongeldig, dan start de app niet. De
 | `SSH_PRIVATE_KEY` | SSH-sleutel waarmee de commando's inloggen op de hostingaccounts | ja | OpenSSH private key, zie hieronder |
 | `GITHUB_TOKEN` | Token met leesrecht op `woutr-nl/WOUTR-WP`: de code (inclusief Git LFS) en de releases | ja | GitHub-token (fine-grained, alleen *Contents: read* op `woutr-nl/WOUTR-WP`) |
 | `BRICKS_LICENSE_KEY` | Bricks-licentiesleutel, alleen doorgegeven bij het deployen van een Bricks-site | ja | tekst |
-| `PORT` | Poort op de host waarop compose de app publiceert (in de container is het altijd 3000) | nee, standaard `3000` | getal |
+| `PORT` | Poort op de host waarop compose de app publiceert, alleen op `127.0.0.1` (in de container is het altijd 3000) | nee, standaard `3000` | getal |
 | `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` | Alleen om de app buiten compose tegen een andere database te draaien | nee, standaard `db`, `5432`, `woutrdash`, `woutrdash` | tekst / getal |
 
 
@@ -40,7 +40,9 @@ Gebruik een aparte sleutel zonder wachtwoordzin voor het dashboard, waarvan de p
 
 1. Maak in Rollout een **docker compose**-app aan op deze repository; Rollout gebruikt `docker-compose.yml` zoals hij is.
 2. Stel in de UI van Rollout **alle verplichte variabelen** uit de tabel hierboven in. Maak geen `.env`-bestand aan en zet nooit geheimen in de repository.
-3. Laat Rollout het domein en HTTPS regelen en verkeer doorsturen naar de app-service op poort **3000** (gewoon HTTP). De app vertrouwt de proxy (één hop) voor het client-IP en HTTPS, zodat het login-cookie `Secure` is.
+3. Laat Rollout het domein en HTTPS regelen en verkeer doorsturen naar de app-service op poort **3000** (gewoon HTTP). De app vertrouwt de proxy (één hop) voor het client-IP en HTTPS, zodat het login-cookie `Secure` is. De app is op de host alleen via `127.0.0.1` bereikbaar (of via het compose-netwerk als `app:3000`), zodat niemand de proxy kan omzeilen en een vals client-IP kan meesturen.
+
+Inloggen: na 5 mislukte pogingen vanaf één IP, of 30 in totaal, is inloggen 15 minuten geblokkeerd. Een sessie verloopt na 12 uur. **Uitloggen** maakt alle eerder uitgegeven login-cookies ongeldig, en een gewijzigd `ADMIN_PASSWORD` logt iedereen uit. Formulieren van een andere site (andere origin) worden geweigerd.
 4. Deploy. De databasetabellen worden bij het starten automatisch aangemaakt.
 
 De databasegegevens staan in het benoemde volume `dbdata`; ze blijven bewaard bij herstarten en opnieuw deployen. Verwijder dat volume niet.

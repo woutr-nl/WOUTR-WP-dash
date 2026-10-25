@@ -1,8 +1,10 @@
 services:
   app:
     build: .
+    init: true
+    # Loopback only: the app must be reached through Rollout's proxy, never directly.
     ports:
-      - "${PORT:-3000}:3000"
+      - "127.0.0.1:${PORT:-3000}:3000"
     environment:
       ADMIN_USER: ${ADMIN_USER:?}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}

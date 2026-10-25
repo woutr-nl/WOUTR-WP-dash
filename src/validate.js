@@ -14,7 +14,8 @@ const TEXT_FIELDS = [
 ];
 const SMTP_FIELDS = ['smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name'];
 
-export function validateSite(input) {
+// existing.hasSmtpPass: the site already has a stored SMTP password.
+export function validateSite(input, { hasSmtpPass = false } = {}) {
   const values = {};
   const errors = {};
   const err = (field, msg) => { errors[field] ??= msg; };
@@ -64,6 +65,9 @@ export function validateSite(input) {
   if (values.theme_type === 'bricks') {
     const used = SMTP_FIELDS.some((f) => values[f]) || typeof values.smtp_pass === 'string';
     if (used) err('smtp', 'SMTP-instellingen zijn niet mogelijk bij een Bricks-thema.');
+    else if (hasSmtpPass && values.smtp_pass !== null) {
+      err('smtp', 'Deze site heeft nog een opgeslagen SMTP-wachtwoord. Kies eerst Blokthema, vink bij het SMTP-wachtwoord "Wissen" aan en sla op; kies daarna Bricks.');
+    }
     values.smtp_pass = null; // never keep an SMTP secret on a Bricks site
   }
 

@@ -89,3 +89,12 @@ test('secret semantics: blank keeps, value replaces, wissen clears', () => {
   assert.equal(validateSite({ ...base, db_pass: 'x', db_pass_clear: '1' }).values.db_pass, null);
   assert.equal(validateSite({ ...base, smtp_pass_clear: '1' }).values.smtp_pass, null);
 });
+
+test('bricks with a stored SMTP password is refused unless it is cleared', () => {
+  const bricks = { ...base, theme_type: 'bricks' };
+  assert.match(validateSite(bricks, { hasSmtpPass: true }).errors.smtp, /SMTP-wachtwoord/);
+  const cleared = validateSite({ ...bricks, smtp_pass_clear: '1' }, { hasSmtpPass: true });
+  assert.deepEqual(cleared.errors, {});
+  assert.equal(cleared.values.smtp_pass, null);
+  assert.deepEqual(validateSite(bricks).errors, {});
+});

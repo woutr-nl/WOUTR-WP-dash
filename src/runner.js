@@ -67,7 +67,8 @@ async function refreshCheckout(needLfs, out) {
   const env = { ...baseEnv(), GIT_ASKPASS: ASKPASS, GIT_TOKEN: config.githubToken, GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1' };
   const git = (args, cwd = CHECKOUT) => exec('git', args, { cwd, env, onStdout: out, onStderr: out });
   // ponytail: shared checkout, refresh skipped during overlap; per-run worktrees if concurrent freshness ever matters.
-  if (!(scriptsRunning > 0 && existsSync(`${CHECKOUT}/.git`))) {
+  const skip = scriptsRunning > 0 && existsSync(`${CHECKOUT}/.git`);
+  if (!skip) {
     if (!existsSync(`${CHECKOUT}/.git`)) {
       out(`WOUTR-WP ophalen (${REPO}, main)…\n`);
       if (await git(['clone', '--depth', '1', '--branch', 'main', `https://github.com/${REPO}.git`, CHECKOUT], DATA) !== 0) return false;
@@ -78,11 +79,19 @@ async function refreshCheckout(needLfs, out) {
       if (await git(['clean', '-fd']) !== 0) return false;
     }
   } else out('Andere run actief: WOUTR-WP-checkout niet bijgewerkt.\n');
-  if (needLfs) {
+  // During overlap only fetch LFS files still missing (pointers): it never rewrites a file a running script may use.
+  if (needLfs && (!skip || await lfsMissing(env))) {
     if (await git(['lfs', 'install', '--skip-repo']) !== 0) return false;
     if (await git(['lfs', 'pull']) !== 0) return false;
   }
   return true;
+}
+
+// True when an LFS file in the checkout is still a pointer ('-' in `git lfs ls-files`).
+export async function lfsMissing(env, cwd = CHECKOUT) {
+  let listed = '';
+  const code = await exec('git', ['lfs', 'ls-files'], { cwd, env, onStdout: (c) => { listed += c; }, onStderr: () => {} });
+  return code !== 0 || /^\S+ - /m.test(listed);
 }
 
 // site: full sites row (incl. *_enc columns). secrets: env name -> plaintext value.
