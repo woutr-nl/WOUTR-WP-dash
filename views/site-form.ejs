@@ -1,0 +1,107 @@
+<%
+  const v = (f) => site[f] ?? '';
+  const e = (f) => errors[f] ? `<span class="error">${errors[f].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>` : '';
+  // Defaults (port 587, tls) are shown as empty so a Bricks site submits no SMTP values.
+  const action = site.id ? `/sites/${site.id}` : '/sites';
+%>
+<h1><%= title %></h1>
+<% if (Object.keys(errors).length) { %>
+  <p class="error">Controleer de gemarkeerde velden.</p>
+<% } %>
+<form method="post" action="<%= action %>" class="site-form" novalidate>
+  <fieldset>
+    <legend>Site</legend>
+    <label>Sitetitel
+      <input name="site_title" value="<%= v('site_title') %>" required><%- e('site_title') %>
+    </label>
+    <label>Site-URL
+      <input name="site_url" type="url" value="<%= v('site_url') %>" placeholder="https://www.voorbeeld.nl" required><%- e('site_url') %>
+    </label>
+    <label>Klant-slug <small>(map onder <code>clients/</code> in WOUTR-WP)</small>
+      <input name="client_slug" value="<%= v('client_slug') %>" pattern="[a-z0-9][a-z0-9._\-]*" required><%- e('client_slug') %>
+    </label>
+    <label>Thematype
+      <select name="theme_type" id="theme_type">
+        <option value="block" <%= v('theme_type') !== 'bricks' ? 'selected' : '' %>>Blokthema</option>
+        <option value="bricks" <%= v('theme_type') === 'bricks' ? 'selected' : '' %>>Bricks</option>
+      </select><%- e('theme_type') %>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Hosting</legend>
+    <label>SSH-doel <small>(gebruiker@host)</small>
+      <input name="ssh_target" value="<%= v('ssh_target') %>" placeholder="gebruiker@host" required><%- e('ssh_target') %>
+    </label>
+    <label>WordPress-pad
+      <input name="wp_path" value="<%= v('wp_path') %>" placeholder="/home/gebruiker/public_html" required><%- e('wp_path') %>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>WordPress-beheerder</legend>
+    <label>Beheerder e-mail
+      <input name="admin_email" type="email" value="<%= v('admin_email') %>" required><%- e('admin_email') %>
+    </label>
+    <label>Beheerder gebruikersnaam
+      <input name="admin_user" value="<%= v('admin_user') %>" placeholder="beheer"><%- e('admin_user') %>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Database</legend>
+    <label>Databasenaam
+      <input name="db_name" value="<%= v('db_name') %>"><%- e('db_name') %>
+    </label>
+    <label>Databasegebruiker
+      <input name="db_user" value="<%= v('db_user') %>"><%- e('db_user') %>
+    </label>
+    <label>Databasehost
+      <input name="db_host" value="<%= v('db_host') %>" placeholder="localhost"><%- e('db_host') %>
+    </label>
+    <%- include('secret', { field: 'db_pass', label: 'Databasewachtwoord', stored: site.has_db_pass, site, error: e('db_pass') }) %>
+  </fieldset>
+
+  <fieldset id="smtp">
+    <legend>SMTP <small>(optioneel, alleen bij een blokthema)</small></legend>
+    <%- e('smtp') %>
+    <label>SMTP-host
+      <input name="smtp_host" value="<%= v('smtp_host') %>"><%- e('smtp_host') %>
+    </label>
+    <label>SMTP-poort
+      <input name="smtp_port" inputmode="numeric" value="<%= String(v('smtp_port')) === '587' ? '' : v('smtp_port') %>" placeholder="587"><%- e('smtp_port') %>
+    </label>
+    <label>Versleuteling
+      <select name="smtp_encryption">
+        <option value="">standaard (tls)</option>
+        <% for (const opt of ['none', 'ssl', 'tls']) { %>
+          <option value="<%= opt %>" <%= opt !== 'tls' && v('smtp_encryption') === opt ? 'selected' : '' %>><%= opt %></option>
+        <% } %>
+      </select><%- e('smtp_encryption') %>
+    </label>
+    <label>SMTP-gebruiker
+      <input name="smtp_user" value="<%= v('smtp_user') %>"><%- e('smtp_user') %>
+    </label>
+    <label>Afzenderadres
+      <input name="smtp_from" type="email" value="<%= v('smtp_from') %>"><%- e('smtp_from') %>
+    </label>
+    <label>Afzendernaam
+      <input name="smtp_from_name" value="<%= v('smtp_from_name') %>"><%- e('smtp_from_name') %>
+    </label>
+    <%- include('secret', { field: 'smtp_pass', label: 'SMTP-wachtwoord', stored: site.has_smtp_pass, site, error: e('smtp_pass') }) %>
+  </fieldset>
+
+  <div class="bar">
+    <button type="submit">Opslaan</button>
+    <a href="/">Annuleren</a>
+  </div>
+</form>
+
+<script>
+  // Bricks sites take no SMTP settings: disable the fieldset (the server rejects them too).
+  const theme = document.getElementById('theme_type');
+  const smtp = document.getElementById('smtp');
+  const sync = () => { smtp.disabled = theme.value === 'bricks'; };
+  theme.addEventListener('change', sync);
+  sync();
+</script>

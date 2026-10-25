@@ -1,0 +1,6 @@
+{
+  "setup": { "run": "npm ci" },
+  "commands": [
+    { "name": "Unit tests", "run": "npm test" }
+  ]
+}
