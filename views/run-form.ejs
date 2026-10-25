@@ -3,9 +3,9 @@
   const ENV_LABEL = { WP_DB_PASS: 'databasewachtwoord (WP_DB_PASS)', WOUTR_SMTP_PASS: 'SMTP-wachtwoord (WOUTR_SMTP_PASS)', BRICKS_LICENSE_KEY: 'Bricks-licentiesleutel (BRICKS_LICENSE_KEY)' };
   const select = (name, label, versions, current) => { %>
     <label><%= label %>
-      <select name="<%= name %>" data-installed="<%= current || '' %>">
+      <select name="<%= name %>" data-installed>
         <option value="">nieuwste</option>
-        <% for (const v of versions) { %><option value="<%= v %>"><%= v %><%= v === current ? ' (geïnstalleerd)' : '' %></option><% } %>
+        <% for (const v of versions) { %><option value="<%= v %>"<%= isRollback(v, current) ? ' data-rollback' : '' %>><%= v %><%= v === current ? ' (geïnstalleerd)' : '' %></option><% } %>
       </select>
     </label>
 <% }; %>
@@ -60,15 +60,10 @@
 
 <% if (action === 'update') { %>
 <script>
-  // Mark a choice older than installed as a rollback (the server computes it authoritatively too).
-  const cmp = (a, b) => {
-    const pa = a.split('.').map((n) => parseInt(n, 10) || 0), pb = b.split('.').map((n) => parseInt(n, 10) || 0);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
-    return 0;
-  };
+  // Rollback flags are precomputed server-side per option (isRollback); the POST recomputes them authoritatively.
   const selects = document.querySelectorAll('select[data-installed]');
   const sync = () => {
-    document.getElementById('rollback').hidden = ![...selects].some((s) => s.value && s.dataset.installed && cmp(s.value, s.dataset.installed) < 0);
+    document.getElementById('rollback').hidden = ![...selects].some((s) => 'rollback' in s.selectedOptions[0].dataset);
   };
   selects.forEach((s) => s.addEventListener('change', sync));
 </script>

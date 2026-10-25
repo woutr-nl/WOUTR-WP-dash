@@ -47,13 +47,14 @@ export function createApp() {
   app.locals.describeOptions = (action, o = {}) => {
     const out = [];
     if (action !== 'live') out.push(`thema ${o.version || 'nieuwste'}${o.rollback?.theme ? ' (terugrol)' : ''}`);
-    if (o.parent_version) out.push(`woutr ${o.parent_version || 'nieuwste'}${o.rollback?.parent ? ' (terugrol)' : ''}`);
+    if (o.parent_version) out.push(`woutr ${o.parent_version}${o.rollback?.parent ? ' (terugrol)' : ''}`);
     if (o.smtp || o.apply_smtp) out.push('SMTP toegepast');
     if (o.overwrite) out.push('--overwrite (bevestigd)');
     if (o.force) out.push('--force (bevestigd)');
     if (o.retry_of) out.push(`na run #${o.retry_of}`);
     return out;
   };
+  app.locals.isRollback = isRollback;
   app.locals.fmtDate = (d) => (d ? new Date(d).toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam', dateStyle: 'short', timeStyle: 'medium' }) : '');
 
   app.use('/public', express.static(root + 'public'));
