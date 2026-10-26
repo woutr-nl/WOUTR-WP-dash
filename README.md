@@ -93,12 +93,12 @@ export ADMIN_USER=admin
 export ADMIN_PASSWORD='kies-een-wachtwoord'
 export SESSION_SECRET="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export POSTGRES_PASSWORD="$(openssl rand -base64 24)"
+export POSTGRES_PASSWORD='lokaal-db-wachtwoord'
 export SSH_PRIVATE_KEY=dummy GITHUB_TOKEN=dummy BRICKS_LICENSE_KEY=dummy
 docker compose up
 ```
 
-Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. Open daarna <http://localhost:3000>. Met dummywaarden voor `SSH_PRIVATE_KEY`, `GITHUB_TOKEN` en `BRICKS_LICENSE_KEY` werkt het beheer van sites, maar mislukken runs. Bewaar `ENCRYPTION_KEY` en `POSTGRES_PASSWORD` als je dezelfde database opnieuw wilt gebruiken; `docker compose down -v` wist de lokale database.
+Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. Open daarna <http://localhost:3000>. Met dummywaarden voor `SSH_PRIVATE_KEY`, `GITHUB_TOKEN` en `BRICKS_LICENSE_KEY` werkt het beheer van sites, maar mislukken runs. `POSTGRES_PASSWORD` is hier bewust een vaste waarde: Postgres stelt het wachtwoord alleen in bij de eerste start van een leeg volume, dus een ander wachtwoord bij een volgende start geeft `password authentication failed` en een app die blijft herstarten. Wil je het wachtwoord wijzigen, wis dan eerst de lokale database met `docker compose down -v`. Bewaar ook `ENCRYPTION_KEY` als je dezelfde database opnieuw wilt gebruiken, anders zijn de opgeslagen wachtwoorden onleesbaar.
 
 ## Beveiliging
 
