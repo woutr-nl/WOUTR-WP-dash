@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: ghcr.io/woutr-nl/woutr-wp-dash:${DASH_IMAGE_TAG:-latest}
     init: true
     # Loopback only: the app must be reached through Rollout's proxy, never directly.
     ports:
