@@ -20,6 +20,7 @@ Ontbreekt een verplichte variabele of is die ongeldig, dan start de app niet. De
 | `SSH_PRIVATE_KEY` | SSH-sleutel waarmee de commando's inloggen op de hostingaccounts | ja | OpenSSH private key, zie hieronder |
 | `GITHUB_TOKEN` | Token met leesrecht op `woutr-nl/WOUTR-WP`: de code (inclusief Git LFS) en de releases | ja | GitHub-token (fine-grained, alleen *Contents: read* op `woutr-nl/WOUTR-WP`) |
 | `BRICKS_LICENSE_KEY` | Bricks-licentiesleutel, alleen doorgegeven bij het deployen van een Bricks-site | ja | tekst |
+| `DASH_IMAGE_TAG` | Tag van de app-image die compose gebruikt, bijv. een commit-SHA om terug te rollen | nee, standaard `latest` | tekst (`latest` of een volledige commit-SHA) |
 | `PORT` | Poort op de host waarop compose de app publiceert, alleen op `127.0.0.1` (in de container is het altijd 3000) | nee, standaard `3000` | getal |
 | `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` | Alleen om de app buiten compose tegen een andere database te draaien | nee, standaard `db`, `5432`, `woutrdash`, `woutrdash` | tekst / getal |
 
@@ -36,12 +37,28 @@ awk '{printf "%s\\n", $0}' ~/.ssh/id_ed25519
 
 Gebruik een aparte sleutel zonder wachtwoordzin voor het dashboard, waarvan de publieke sleutel op de hostingaccounts staat.
 
+## CI en images
+
+GitHub Actions (`.github/workflows/ci.yml`) bouwt en test de app; Rollout bouwt zelf niets meer, maar haalt de kant-en-klare image op.
+
+- **Pull request naar `main`**: `npm ci`, `npm test` en een build van de image uit de `Dockerfile`. Er wordt niets gepubliceerd.
+- **Push/merge naar `main`**: dezelfde tests en build, daarna wordt de image gepubliceerd als `ghcr.io/woutr-nl/woutr-wp-dash` met twee tags: `latest` en de volledige commit-SHA (40 tekens) van die commit.
+- Falen de tests, dan faalt de run en wordt er niets gebouwd of gepubliceerd.
+- De image is alleen voor `linux/amd64`. Publiceren gebeurt met het eigen `GITHUB_TOKEN` van de workflow; er is geen persoonlijk token of extra secret nodig.
+- Het package is privé en gekoppeld aan deze repository (zichtbaar onder *Packages* op de repositorypagina). Runs op `main` lopen na elkaar, zodat `latest` altijd naar de nieuwste commit wijst.
+
 ## Deployen op Rollout
 
-1. Maak in Rollout een **docker compose**-app aan op deze repository; Rollout gebruikt `docker-compose.yml` zoals hij is.
-2. Stel in de UI van Rollout **alle verplichte variabelen** uit de tabel hierboven in. Maak geen `.env`-bestand aan en zet nooit geheimen in de repository.
-3. Laat Rollout het domein en HTTPS regelen en verkeer doorsturen naar de app-service op poort **3000** (gewoon HTTP). De app vertrouwt de proxy (één hop) voor het client-IP en HTTPS, zodat het login-cookie `Secure` is. De app is op de host alleen via `127.0.0.1` bereikbaar (of via het compose-netwerk als `app:3000`), zodat niemand de proxy kan omzeilen en een vals client-IP kan meesturen.
-4. Deploy. De databasetabellen worden bij het starten automatisch aangemaakt.
+1. Maak een GitHub-token **alleen om images te lezen**: een *classic* personal access token met uitsluitend de scope `read:packages` (fine-grained tokens werken nog niet voor het ophalen uit `ghcr.io`), van een account met leesrecht op de packages van `woutr-nl`. Vul in Rollout bij de registry-gegevens in: registry `ghcr.io`, je GitHub-gebruikersnaam en dat token als wachtwoord.
+2. Maak in Rollout een **docker compose**-app aan op deze repository; Rollout gebruikt `docker-compose.yml` zoals hij is.
+3. Stel in de UI van Rollout **alle verplichte variabelen** uit de tabel hierboven in. Maak geen `.env`-bestand aan en zet nooit geheimen in de repository.
+4. Laat Rollout het domein en HTTPS regelen en verkeer doorsturen naar de app-service op poort **3000** (gewoon HTTP). De app vertrouwt de proxy (één hop) voor het client-IP en HTTPS, zodat het login-cookie `Secure` is. De app is op de host alleen via `127.0.0.1` bereikbaar (of via het compose-netwerk als `app:3000`), zodat niemand de proxy kan omzeilen en een vals client-IP kan meesturen.
+5. Deploy. De databasetabellen worden bij het starten automatisch aangemaakt.
+6. Controleer na de eerste publicatie eenmalig op de packagepagina (*Package settings*) dat de zichtbaarheid **Private** is.
+
+**Nieuwe versie uitrollen**: een merge naar `main` publiceert een nieuwe `latest`, maar Rollout start die niet vanzelf. **Redeploy** de app in Rollout; die haalt `ghcr.io/woutr-nl/woutr-wp-dash:latest` opnieuw op en herstart de app. Handmatig op de server kan het ook: `docker compose pull && docker compose up -d`.
+
+**Vastzetten of terugrollen**: zet in de variabelen van Rollout `DASH_IMAGE_TAG` op de volledige commit-SHA van een goede build (te vinden op de packagepagina van de repository of in de commitlijst van `main`) en redeploy. Verwijder de variabele en redeploy om terug te gaan naar `latest`.
 
 Inloggen: na 5 mislukte pogingen vanaf één IP, of 30 in totaal, is inloggen 15 minuten geblokkeerd. Een sessie verloopt na 12 uur. **Uitloggen** maakt alle eerder uitgegeven login-cookies ongeldig, en een gewijzigd `ADMIN_PASSWORD` logt iedereen uit. Formulieren van een andere site (andere origin) worden geweigerd.
 
@@ -67,19 +84,21 @@ Op de pagina **Runs** van een site staan de knoppen **Deployen**, **Bijwerken** 
 
 ## Lokaal draaien
 
-Met Docker en compose; de variabelen worden geëxporteerd in de shell (geen `.env`):
+Met Docker en compose, vanuit de lokale broncode en zonder in te loggen bij `ghcr.io`. Bouw eerst zelf de image met de tag `local` en laat compose die gebruiken; omdat de image lokaal bestaat, haalt compose niets op. De variabelen worden geëxporteerd in de shell (geen `.env`):
 
 ```sh
+docker build -t ghcr.io/woutr-nl/woutr-wp-dash:local .
+export DASH_IMAGE_TAG=local
 export ADMIN_USER=admin
 export ADMIN_PASSWORD='kies-een-wachtwoord'
 export SESSION_SECRET="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export POSTGRES_PASSWORD="$(openssl rand -base64 24)"
 export SSH_PRIVATE_KEY=dummy GITHUB_TOKEN=dummy BRICKS_LICENSE_KEY=dummy
-docker compose up --build
+docker compose up
 ```
 
-Open daarna <http://localhost:3000>. Met dummywaarden voor `SSH_PRIVATE_KEY`, `GITHUB_TOKEN` en `BRICKS_LICENSE_KEY` werkt het beheer van sites, maar mislukken runs. Bewaar `ENCRYPTION_KEY` en `POSTGRES_PASSWORD` als je dezelfde database opnieuw wilt gebruiken; `docker compose down -v` wist de lokale database.
+Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. Open daarna <http://localhost:3000>. Met dummywaarden voor `SSH_PRIVATE_KEY`, `GITHUB_TOKEN` en `BRICKS_LICENSE_KEY` werkt het beheer van sites, maar mislukken runs. Bewaar `ENCRYPTION_KEY` en `POSTGRES_PASSWORD` als je dezelfde database opnieuw wilt gebruiken; `docker compose down -v` wist de lokale database.
 
 ## Beveiliging
 
