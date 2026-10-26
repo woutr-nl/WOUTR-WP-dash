@@ -44,7 +44,7 @@ GitHub Actions (`.github/workflows/ci.yml`) bouwt en test de app; Rollout bouwt 
 - **Pull request naar `main`**: `npm ci`, `npm test` en een build van de image uit de `Dockerfile`. Er wordt niets gepubliceerd.
 - **Push/merge naar `main`**: dezelfde tests en build, daarna wordt de image gepubliceerd als `ghcr.io/woutr-nl/woutr-wp-dash` met twee tags: `latest` en de volledige commit-SHA (40 tekens) van die commit.
 - Falen de tests, dan faalt de run en wordt er niets gebouwd of gepubliceerd.
-- De image is alleen voor `linux/amd64`. Publiceren gebeurt met het eigen `GITHUB_TOKEN` van de workflow; er is geen persoonlijk token of extra secret nodig.
+- De image is alleen voor `linux/amd64`. Publiceren gebeurt met het eigen `GITHUB_TOKEN` van de workflow; er is geen persoonlijk token of extra secret nodig. Alleen de publicatiejob (push naar `main`, na geslaagde tests) krijgt schrijfrecht op packages; tests en pull requests draaien met een token dat alleen kan lezen.
 - Het package is privé en gekoppeld aan deze repository (zichtbaar onder *Packages* op de repositorypagina). Runs op `main` lopen na elkaar, zodat `latest` altijd naar de nieuwste commit wijst.
 
 ## Deployen op Rollout
