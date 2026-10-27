@@ -219,12 +219,14 @@ export async function createWpLoginUrl(site) {
   const lines = [];
   const stderr = makeLineBuffer((l) => lines.push(l));
   let stdout = '';
-  const signal = AbortSignal.timeout(60_000);
-  const ran = await withCheckout(false, (c) => stderr.push(c),
-    () => exec('bash', ['tools/login.sh', '--ssh', site.ssh_target, '--path', site.wp_path, '--admin-user', site.admin_user], {
+  let signal;
+  const ran = await withCheckout(false, (c) => stderr.push(c), () => {
+    signal = AbortSignal.timeout(60_000); // only the script counts, not the wait for the checkout
+    return exec('bash', ['tools/login.sh', '--ssh', site.ssh_target, '--path', site.wp_path, '--admin-user', site.admin_user], {
       cwd: CHECKOUT, env: baseEnv(), signal,
       onStdout: (c) => { stdout += c; }, onStderr: (c) => stderr.push(c),
-    }));
+    });
+  });
   if (!ran) return { ok: false, message: 'WOUTR-WP ophalen mislukt; probeer het later opnieuw.' };
   const { code } = ran;
   stderr.end();
