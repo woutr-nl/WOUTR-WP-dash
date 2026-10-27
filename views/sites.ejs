@@ -6,7 +6,7 @@
   <p class="empty">Nog geen sites. Voeg de eerste site toe.</p>
 <% } else { %>
   <table class="sites">
-    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th></th></tr></thead>
+    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th>SSH-sleutel</th><th></th></tr></thead>
     <tbody>
     <% for (const s of sites) { %>
       <tr>
@@ -19,6 +19,13 @@
             <span class="badge <%= s.last_status %>"><%= STATUS_LABEL[s.last_status] %></span><br>
             <small><%= fmtDate(s.last_started_at) %></small>
           <% } else { %><span class="empty">nog geen</span><% } %>
+        </td>
+        <td data-label="SSH-sleutel">
+          <%- include('key-status', { s, daConfigured }) %>
+          <% if (s.da_username) { %>
+            <br><button type="button" class="secondary" data-test="/sites/<%= s.id %>/install-key" data-target="install-<%= s.id %>">Opnieuw installeren</button>
+            <span id="install-<%= s.id %>" hidden></span>
+          <% } %>
         </td>
         <td class="actions">
           <a class="button" href="/sites/<%= s.id %>/runs">Runs</a>

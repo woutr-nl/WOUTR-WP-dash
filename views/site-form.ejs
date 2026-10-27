@@ -36,6 +36,9 @@
     <label>WordPress-pad
       <input name="wp_path" value="<%= v('wp_path') %>" placeholder="/home/gebruiker/public_html" required><%- e('wp_path') %>
     </label>
+    <label>Hosting-account (DirectAdmin-gebruiker) <small>(optioneel, voor automatische sleutelinstallatie)</small>
+      <input name="da_username" value="<%= v('da_username') %>" autocomplete="off"><%- e('da_username') %>
+    </label>
   </fieldset>
 
   <fieldset>

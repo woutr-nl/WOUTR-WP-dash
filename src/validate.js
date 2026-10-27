@@ -6,11 +6,14 @@ const CONTROL = /[\x00-\x1f\x7f]/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 const SSH_TARGET = /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$/;
+const DA_USER = /^[a-z][a-z0-9_]{0,31}$/;
+const DA_USER_MSG = 'Geen geldige DirectAdmin-gebruikersnaam (kleine letters en cijfers, begint met een letter).';
 
 const TEXT_FIELDS = [
   'client_slug', 'theme_type', 'ssh_target', 'wp_path', 'site_url', 'site_title',
   'admin_email', 'admin_user', 'db_name', 'db_user', 'db_host',
   'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name',
+  'da_username',
 ];
 const SMTP_FIELDS = ['smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name'];
 
@@ -48,6 +51,9 @@ export function validateSite(input, { hasSmtpPass = false } = {}) {
       err('site_url', 'Geef een geldige URL die met http:// of https:// begint.');
   }
 
+  if (values.da_username && !errors.da_username && !DA_USER.test(values.da_username)) err('da_username', DA_USER_MSG);
+  values.da_username ||= null;
+
   need('site_title');
   need('admin_email');
   if (values.admin_email && !EMAIL.test(values.admin_email)) err('admin_email', 'Geen geldig e-mailadres.');
@@ -83,6 +89,29 @@ export function validateSite(input, { hasSmtpPass = false } = {}) {
   if (values.smtp_from && !EMAIL.test(values.smtp_from)) err('smtp_from', 'Geen geldig e-mailadres.');
   for (const f of ['smtp_host', 'smtp_user', 'smtp_from', 'smtp_from_name']) values[f] ||= null;
 
+  return { values, errors };
+}
+
+// The DirectAdmin reseller connection. values.password: undefined (keep stored) or a string.
+export function validateDaConnection(input, { hasPassword = false } = {}) {
+  const values = {};
+  const errors = {};
+  const err = (field, msg) => { errors[field] ??= msg; };
+  for (const f of ['url', 'username']) {
+    const v = typeof input[f] === 'string' ? input[f].trim() : '';
+    values[f] = v;
+    if (CONTROL.test(v)) err(f, 'Bevat ongeldige tekens (bijv. een regeleinde).');
+    else if (v.startsWith('-')) err(f, "Mag niet met '-' beginnen.");
+  }
+  let url;
+  try { url = new URL(values.url); } catch { /* invalid */ }
+  if (!url || url.protocol !== 'https:' || url.username || url.password)
+    err('url', 'Geef een https://-URL van het DirectAdmin-paneel (bijv. https://server.voorbeeld.nl:2222).');
+  values.url = values.url.replace(/\/+$/, '');
+  if (!values.username) err('username', 'Verplicht veld.');
+  else if (!DA_USER.test(values.username)) err('username', DA_USER_MSG);
+  values.password = secret(input, 'password', err) ?? undefined; // no "clear": removal is its own action
+  if (values.password === undefined && !hasPassword) err('password', 'Verplicht veld.');
   return { values, errors };
 }
 
