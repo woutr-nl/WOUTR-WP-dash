@@ -8,7 +8,7 @@ import { encrypt, decrypt } from './crypto.js';
 import { validateSite } from './validate.js';
 import { ACTIONS, buildEnvNames, isRollback } from './runs.js';
 import { startRun, isBusy, anyBusy, listReleases, testSshConnection } from './runner.js';
-import { getActiveKeyInfo, rotateKey } from './sshkey.js';
+import { getKeyInfo, rotateKey, ROTATE_BUSY } from './sshkey.js';
 import { createLimiter } from './limiter.js';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -220,12 +220,17 @@ export function createApp() {
   // ---- SSH key ----
 
   app.get('/ssh-key', async (req, res) => {
-    render(res, 'ssh-key', { title: 'SSH-sleutel', key: await getActiveKeyInfo(), envKeyStillSet: config.sshPrivateKey !== null });
+    render(res, 'ssh-key', { title: 'SSH-sleutel', key: await getKeyInfo(), envKeyStillSet: config.sshPrivateKey !== null });
   });
 
   app.post('/ssh-key/rotate', async (req, res) => {
-    if (anyBusy()) return res.status(409).type('text').send('Er is nu een run bezig; genereer een nieuwe sleutel pas als alle runs klaar zijn.');
-    await rotateKey();
+    if (anyBusy()) return res.status(409).type('text').send(ROTATE_BUSY);
+    try {
+      await rotateKey(anyBusy);
+    } catch (e) {
+      if (e.busy) return res.status(409).type('text').send(e.message);
+      throw e;
+    }
     res.redirect('/ssh-key');
   });
 

@@ -12,6 +12,8 @@ import { encrypt, decrypt } from './crypto.js';
 const run = promisify(execFile);
 const ID_FILE = `${homedir()}/.ssh/id`;
 
+export const ROTATE_BUSY = 'Er is nu een run bezig; genereer een nieuwe sleutel pas als alle runs klaar zijn.';
+
 let activeKey = null; // plaintext, only for log scrubbing
 
 export function normalizeKey(raw) {
@@ -92,7 +94,7 @@ export async function initSshKey() {
   await activate(key);
 }
 
-export async function getActiveKeyInfo() {
+export async function getKeyInfo() {
   const { rows } = await pool.query(`SELECT public_key, fingerprint, key_type, adopted, created_at, retired_at,
       private_key_enc IS NOT NULL AS active FROM ssh_keys ORDER BY id DESC`);
   const active = rows.find((r) => r.active) ?? null;
@@ -101,8 +103,9 @@ export async function getActiveKeyInfo() {
 
 export const getActivePrivateKey = () => activeKey;
 
-// Caller must make sure no run is active: ~/.ssh/id is rewritten.
-export async function rotateKey() {
+// ~/.ssh/id is rewritten, so isBusy() is checked last thing before commit: a run
+// started during keygen still refuses the rotation. Throws an error with .busy then.
+export async function rotateKey(isBusy) {
   const { privateKey, publicKey, fingerprint, keyType } = await generateKeyPair();
   const client = await pool.connect();
   try {
@@ -110,6 +113,7 @@ export async function rotateKey() {
     await client.query('UPDATE ssh_keys SET private_key_enc = NULL, retired_at = now() WHERE private_key_enc IS NOT NULL');
     await client.query(`INSERT INTO ssh_keys (private_key_enc, public_key, fingerprint, key_type)
       VALUES ($1, $2, $3, $4)`, [encrypt(privateKey, config.encryptionKey), publicKey, fingerprint, keyType]);
+    if (isBusy()) throw Object.assign(new Error(ROTATE_BUSY), { busy: true });
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -118,5 +122,4 @@ export async function rotateKey() {
     client.release();
   }
   await activate(privateKey);
-  return { public_key: publicKey, fingerprint, key_type: keyType };
 }
