@@ -45,6 +45,27 @@ export async function initDb() {
       finished_at timestamptz
     );
     CREATE INDEX IF NOT EXISTS runs_site_id_idx ON runs (site_id, id DESC);
+    -- One active key (private_key_enc set); retired keys keep only their public half.
+    CREATE TABLE IF NOT EXISTS ssh_keys (
+      id              serial PRIMARY KEY,
+      private_key_enc text,
+      public_key      text NOT NULL,
+      fingerprint     text NOT NULL,
+      key_type        text NOT NULL,
+      adopted         boolean NOT NULL DEFAULT false,
+      created_at      timestamptz NOT NULL DEFAULT now(),
+      retired_at      timestamptz
+    );
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS da_username text;
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS da_key_state jsonb;
+    -- Single DirectAdmin reseller connection for the whole dashboard (one row, enforced).
+    CREATE TABLE IF NOT EXISTS directadmin (
+      id           boolean PRIMARY KEY DEFAULT true CHECK (id),
+      url          text NOT NULL,
+      username     text NOT NULL,
+      password_enc text NOT NULL,
+      updated_at   timestamptz NOT NULL DEFAULT now()
+    );
     -- A run still 'running' at boot was cut off by a restart.
     UPDATE runs SET status = 'interrupted', finished_at = now() WHERE status = 'running';
   `);

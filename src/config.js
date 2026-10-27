@@ -33,8 +33,8 @@ const config = {
   sessionSecret: required('SESSION_SECRET', (v) => v.length >= 32),
   encryptionKey: encryptionKey(),
   postgresPassword: required('POSTGRES_PASSWORD'),
-  // Stage 2 (deploy/update/live): required now so a deployment is complete.
-  sshPrivateKey: required('SSH_PRIVATE_KEY'),
+  // Optional: only adopted once when no key is stored yet (see sshkey.js).
+  sshPrivateKey: env.SSH_PRIVATE_KEY?.trim() ? env.SSH_PRIVATE_KEY : null,
   githubToken: required('GITHUB_TOKEN'),
   bricksLicenseKey: required('BRICKS_LICENSE_KEY'),
   port,

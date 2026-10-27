@@ -1,0 +1,12 @@
+<% const st = s.da_key_state; %>
+<% if (!s.da_username) { %><span class="empty">geen hosting-account</span>
+<% } else if (!daConfigured) { %><span class="empty">geen resellerkoppeling</span>
+<% } else if (!st) { %><span class="empty">nog niet geïnstalleerd</span>
+<% } else if (st.status === 'installed') { %>
+  <span class="badge success">geïnstalleerd</span><% if (st.removed_old) { %> <span class="badge">oude sleutel verwijderd</span><% } %><br>
+  <small><%= fmtDate(st.at) %></small>
+  <% if (st.ssh_test) { %><br><small class="<%= st.ssh_test.outcome === 'ok' ? '' : 'error' %>">SSH-test: <%= st.ssh_test.outcome === 'ok' ? 'geslaagd' : st.ssh_test.message %></small><% } %>
+<% } else { %>
+  <span class="badge failed">mislukt</span> <small><%= fmtDate(st.at) %></small><br>
+  <small class="error"><%= st.error %></small>
+<% } %>

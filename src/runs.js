@@ -111,3 +111,12 @@ export function statusFromExit(action, code) {
   if (code === 3 && (action === 'deploy' || action === 'live')) return 'needs_confirmation';
   return 'failed';
 }
+
+// Outcome of an `ssh <target> true` connection test. A changed host key is checked
+// first: it must never read as a key problem.
+export function classifySshTest(code, stderr) {
+  if (code === 0) return 'ok';
+  if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed/.test(stderr)) return 'hostkey';
+  if (/Permission denied/.test(stderr)) return 'denied';
+  return 'unreachable';
+}

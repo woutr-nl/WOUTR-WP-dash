@@ -1,8 +1,10 @@
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #1d1d1f; background: #f5f5f7; }
 header { display: flex; justify-content: space-between; align-items: center; padding: .75rem 1rem; background: #1d1d1f; }
 header a, header .link { color: #fff; text-decoration: none; font-weight: 600; }
 header form { margin: 0; }
+header nav { display: flex; gap: 1rem; align-items: center; }
 main { max-width: 60rem; margin: 0 auto; padding: 1rem; }
 h1 { margin: .5rem 0 1rem; font-size: 1.5rem; }
 a { color: #0b57d0; }
