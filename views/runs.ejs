@@ -7,6 +7,11 @@
   </div>
 </div>
 <p><a href="<%= site.site_url %>" target="_blank" rel="noopener"><%= site.site_url %></a> · <code><%= site.client_slug %></code> · <%= site.theme_type === 'bricks' ? 'Bricks' : 'Blokthema' %></p>
+<div class="secret-actions">
+  <button type="button" class="secondary" data-test="/sites/<%= site.id %>/test-ssh" data-target="ssh_test_result" data-link="ssh_test_link">Test SSH-verbinding</button>
+  <span id="ssh_test_result" role="status" hidden></span>
+  <a id="ssh_test_link" href="/ssh-key" hidden>SSH-sleutel</a>
+</div>
 <% if (busy) { %><p class="notice">Er is nu een run bezig voor deze site.</p><% } %>
 <% if (site.has_admin_pass) { %>
   <div class="secret-actions">

@@ -7,7 +7,8 @@ import { homedir } from 'node:os';
 import config from './config.js';
 import { pool } from './db.js';
 import { encrypt } from './crypto.js';
-import { buildArgs, parseResult, makeScrubber, makeLineBuffer, statusFromExit, compareVersions } from './runs.js';
+import { getActivePrivateKey } from './sshkey.js';
+import { buildArgs, parseResult, makeScrubber, makeLineBuffer, statusFromExit, compareVersions, classifySshTest } from './runs.js';
 
 const REPO = 'woutr-nl/WOUTR-WP';
 const DATA = '/data';
@@ -22,12 +23,8 @@ let scriptsRunning = 0;
 let checkoutLock = Promise.resolve();
 
 export async function initRunner() {
-  let key = config.sshPrivateKey;
-  if (key.includes('\\n') && !key.includes('\n')) key = key.replaceAll('\\n', '\n');
-  if (!key.endsWith('\n')) key += '\n';
   await mkdir(`${HOME}/.ssh`, { recursive: true, mode: 0o700 });
   await mkdir(`${DATA}/ssh`, { recursive: true });
-  await writeFile(`${HOME}/.ssh/id`, key, { mode: 0o600 });
   // accept-new: first connection trusts and remembers the host key (on the volume);
   // a changed key makes ssh refuse to connect.
   await writeFile(`${HOME}/.ssh/config`, `Host *
@@ -42,15 +39,16 @@ export async function initRunner() {
 }
 
 export const isBusy = (siteId) => active.has(Number(siteId));
+export const anyBusy = () => active.size > 0;
 
 // Never inherit process.env: it holds the dashboard's own secrets.
 const baseEnv = () => ({ PATH: process.env.PATH, HOME, LANG: process.env.LANG || 'C.UTF-8' });
 
-function exec(cmd, args, { cwd, env, onStdout, onStderr }) {
+function exec(cmd, args, { cwd, env, signal, onStdout, onStderr }) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(cmd, args, { cwd, env, signal, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       onStderr(`${cmd}: ${e.message}\n`);
       return resolve(null);
@@ -124,7 +122,7 @@ function busyError() {
 }
 
 async function execute(site, action, options, secrets, runId) {
-  const known = [...Object.values(secrets), config.githubToken, config.bricksLicenseKey, config.sshPrivateKey];
+  const known = [...Object.values(secrets), config.githubToken, config.bricksLicenseKey, getActivePrivateKey(), config.sshPrivateKey];
   let scrub = makeScrubber(known);
 
   let log = '';
@@ -193,6 +191,18 @@ async function execute(site, action, options, secrets, runId) {
   await writes;
   await pool.query(`UPDATE runs SET status = $2, exit_code = $3, result = $4, log = $5, finished_at = now() WHERE id = $1`,
     [runId, status, code, result, log]);
+}
+
+// Logs in with the dashboard key and runs `true`: changes nothing, no run row, no run lock.
+// Same ~/.ssh/config as runs, so the same identity and host-key rules apply.
+export async function testSshConnection(sshTarget) {
+  let stderr = '';
+  const code = await exec('ssh', ['-o', 'ConnectTimeout=10', '-o', 'NumberOfPasswordPrompts=0', '--', sshTarget, 'true'], {
+    env: baseEnv(), signal: AbortSignal.timeout(20_000), onStdout: () => {}, onStderr: (c) => { stderr += c; },
+  });
+  const scrub = makeScrubber([getActivePrivateKey(), config.sshPrivateKey]);
+  const detail = scrub(stderr.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '');
+  return { outcome: classifySshTest(code, stderr), detail };
 }
 
 // Available versions for a slug's child theme and for the woutr parent theme, newest first.

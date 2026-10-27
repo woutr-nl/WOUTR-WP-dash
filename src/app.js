@@ -7,7 +7,8 @@ import { pool } from './db.js';
 import { encrypt, decrypt } from './crypto.js';
 import { validateSite } from './validate.js';
 import { ACTIONS, buildEnvNames, isRollback } from './runs.js';
-import { startRun, isBusy, listReleases } from './runner.js';
+import { startRun, isBusy, anyBusy, listReleases, testSshConnection } from './runner.js';
+import { getActiveKeyInfo, rotateKey } from './sshkey.js';
 import { createLimiter } from './limiter.js';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -214,6 +215,35 @@ export function createApp() {
     } catch {
       res.status(500).json({ error: 'Kan niet ontsleutelen — klopt ENCRYPTION_KEY?' });
     }
+  });
+
+  // ---- SSH key ----
+
+  app.get('/ssh-key', async (req, res) => {
+    render(res, 'ssh-key', { title: 'SSH-sleutel', key: await getActiveKeyInfo(), envKeyStillSet: config.sshPrivateKey !== null });
+  });
+
+  app.post('/ssh-key/rotate', async (req, res) => {
+    if (anyBusy()) return res.status(409).type('text').send('Er is nu een run bezig; genereer een nieuwe sleutel pas als alle runs klaar zijn.');
+    await rotateKey();
+    res.redirect('/ssh-key');
+  });
+
+  const SSH_TEST_MESSAGE = {
+    ok: 'Verbinding geslaagd: de sleutel is geaccepteerd.',
+    denied: 'De server weigert de sleutel. Voeg de publieke sleutel van het dashboard toe aan het hostingaccount (zie de pagina SSH-sleutel).',
+    hostkey: 'De hostsleutel van de server is veranderd; SSH weigert te verbinden. Klopt de nieuwe sleutel, verwijder dan de oude regel uit /data/ssh/known_hosts (zie README).',
+    unreachable: 'De server is niet bereikbaar (time-out of verbinding geweigerd).',
+  };
+
+  // Not gated on the run lock and never recorded in runs.
+  app.post('/sites/:id/test-ssh', async (req, res) => {
+    const site = await loadSite(req.params.id);
+    if (!site) return res.status(404).json({ error: 'Niet gevonden.' });
+    const { outcome, detail } = await testSshConnection(site.ssh_target);
+    let message = SSH_TEST_MESSAGE[outcome];
+    if (outcome === 'unreachable' && detail) message += ` (${detail})`;
+    res.json({ ok: outcome === 'ok', outcome, message });
   });
 
   // ---- Runs ----
