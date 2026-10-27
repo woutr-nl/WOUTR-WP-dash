@@ -85,6 +85,23 @@ async function refreshCheckout(needLfs, out) {
   return true;
 }
 
+// Refreshes the checkout, then runs fn (a script in it) while no other refresh may start.
+// Resolves with { code: await fn() }, or null when the checkout could not be refreshed.
+async function withCheckout(needLfs, out, fn) {
+  const lock = checkoutLock.then(async () => {
+    if (!await refreshCheckout(needLfs, out)) return false;
+    scriptsRunning++; // inside the lock, so no refresh can start before this script does
+    return true;
+  });
+  checkoutLock = lock.catch(() => {});
+  if (!await lock) return null;
+  try {
+    return { code: await fn() };
+  } finally {
+    scriptsRunning--;
+  }
+}
+
 // True when an LFS file in the checkout is still a pointer ('-' in `git lfs ls-files`).
 export async function lfsMissing(env, cwd = CHECKOUT) {
   let listed = '';
@@ -152,30 +169,21 @@ async function execute(site, action, options, secrets, runId) {
   let stdout = '';
   let result;
   let adminPassword;
-  const lock = checkoutLock.then(async () => {
-    if (!await refreshCheckout(action === 'deploy' && site.theme_type === 'bricks', (c) => stderr.push(c))) return false;
-    scriptsRunning++; // inside the lock, so no refresh can start before this script does
-    return true;
-  });
-  checkoutLock = lock.catch(() => {});
-  if (!await lock) {
-    stderr.end();
+  // stdin ignored: no tty, so the commands exit 3 instead of prompting.
+  const ran = await withCheckout(action === 'deploy' && site.theme_type === 'bricks', (c) => stderr.push(c),
+    () => exec('bash', [`tools/${action}.sh`, ...buildArgs(action, site, options)], {
+      cwd: CHECKOUT,
+      env: { ...baseEnv(), GH_TOKEN: config.githubToken, ...secrets },
+      onStdout: (c) => { stdout += c; }, // never stored raw: may carry admin_password
+      onStderr: (c) => stderr.push(c),
+    }));
+  stderr.end();
+  if (!ran) {
     code = null;
     const lines = log.trim().split('\n');
     result = { status: 'failed', failed_step: 'checkout', error: lines[lines.length - 1] || 'WOUTR-WP ophalen mislukt' };
   } else {
-    try {
-      // stdin ignored: no tty, so the commands exit 3 instead of prompting.
-      code = await exec('bash', [`tools/${action}.sh`, ...buildArgs(action, site, options)], {
-        cwd: CHECKOUT,
-        env: { ...baseEnv(), GH_TOKEN: config.githubToken, ...secrets },
-        onStdout: (c) => { stdout += c; }, // never stored raw: may carry admin_password
-        onStderr: (c) => stderr.push(c),
-      });
-    } finally {
-      scriptsRunning--;
-    }
-    stderr.end();
+    code = ran.code;
     ({ result, adminPassword } = parseResult(stdout));
   }
 
@@ -210,24 +218,15 @@ export async function testSshConnection(sshTarget) {
 export async function createWpLoginUrl(site) {
   const lines = [];
   const stderr = makeLineBuffer((l) => lines.push(l));
-  const lock = checkoutLock.then(async () => {
-    if (!await refreshCheckout(false, (c) => stderr.push(c))) return false;
-    scriptsRunning++; // inside the lock, as in execute()
-    return true;
-  });
-  checkoutLock = lock.catch(() => {});
-  if (!await lock) return { ok: false, message: 'WOUTR-WP ophalen mislukt; probeer het later opnieuw.' };
-  let code;
   let stdout = '';
   const signal = AbortSignal.timeout(60_000);
-  try {
-    code = await exec('bash', ['tools/login.sh', '--ssh', site.ssh_target, '--path', site.wp_path, '--admin-user', site.admin_user], {
+  const ran = await withCheckout(false, (c) => stderr.push(c),
+    () => exec('bash', ['tools/login.sh', '--ssh', site.ssh_target, '--path', site.wp_path, '--admin-user', site.admin_user], {
       cwd: CHECKOUT, env: baseEnv(), signal,
       onStdout: (c) => { stdout += c; }, onStderr: (c) => stderr.push(c),
-    });
-  } finally {
-    scriptsRunning--;
-  }
+    }));
+  if (!ran) return { ok: false, message: 'WOUTR-WP ophalen mislukt; probeer het later opnieuw.' };
+  const { code } = ran;
   stderr.end();
   const { result } = parseResult(stdout);
   if (code === 0 && result.login_url) {
