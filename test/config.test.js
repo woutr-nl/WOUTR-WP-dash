@@ -9,7 +9,6 @@ const VALID = {
   SESSION_SECRET: 'session-secret-value-xyz-0123456789abcdef',
   ENCRYPTION_KEY: randomBytes(32).toString('base64'),
   POSTGRES_PASSWORD: 'pg-value-xyz',
-  SSH_PRIVATE_KEY: '-----BEGIN OPENSSH PRIVATE KEY-----\nssh-value-xyz\n-----END OPENSSH PRIVATE KEY-----',
   GITHUB_TOKEN: 'gh-value-xyz',
   BRICKS_LICENSE_KEY: 'bricks-value-xyz',
 };
@@ -41,4 +40,13 @@ test('invalid ENCRYPTION_KEY and short SESSION_SECRET are rejected by name', () 
     assert.match(r.stderr, new RegExp(`omgevingsvariabele: ${name}\\b`));
     assert.ok(!r.stderr.includes(value));
   }
+});
+
+test('SSH_PRIVATE_KEY is optional: startup gets past config validation without it', () => {
+  // No database here, so startup stops at the next step.
+  const r = start({ ...VALID, PGHOST: '127.0.0.1', PGPORT: '1' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Database niet bereikbaar/);
+  assert.doesNotMatch(r.stderr, /omgevingsvariabele/);
+  assertNoValues(r.stdout + r.stderr);
 });

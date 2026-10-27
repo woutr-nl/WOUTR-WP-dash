@@ -10,7 +10,10 @@
   <header>
     <a class="brand" href="/">WOUTR-WP dashboard</a>
     <% if (loggedIn) { %>
-      <form method="post" action="/logout"><button type="submit" class="link">Uitloggen</button></form>
+      <nav>
+        <a href="/ssh-key">SSH-sleutel</a>
+        <form method="post" action="/logout"><button type="submit" class="link">Uitloggen</button></form>
+      </nav>
     <% } %>
   </header>
   <main>
@@ -29,6 +32,33 @@
         const data = await res.json().catch(() => ({}));
         out.value = res.ok ? data.value : (data.error ?? 'Kon niet ophalen');
         out.hidden = false;
+      });
+    });
+    document.querySelectorAll('button[data-copy]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(document.getElementById(btn.dataset.target).value);
+        const label = btn.textContent;
+        btn.textContent = 'Gekopieerd';
+        setTimeout(() => { btn.textContent = label; }, 1500);
+      });
+    });
+    // SSH test: the message is shown as text; the key-page link is static markup.
+    document.querySelectorAll('button[data-test]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const out = document.getElementById(btn.dataset.target);
+        const link = document.getElementById(btn.dataset.link);
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Bezig…';
+        out.hidden = link.hidden = true;
+        const res = await fetch(btn.dataset.test, { method: 'POST' }).catch(() => null);
+        const data = res ? await res.json().catch(() => ({})) : {};
+        out.textContent = data.message ?? data.error ?? 'Test kon niet worden uitgevoerd.';
+        out.className = data.ok ? 'badge success' : 'error';
+        out.hidden = false;
+        link.hidden = data.outcome !== 'denied';
+        btn.disabled = false;
+        btn.textContent = label;
       });
     });
   </script>

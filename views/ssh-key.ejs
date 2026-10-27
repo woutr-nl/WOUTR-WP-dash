@@ -1,0 +1,48 @@
+<h1>SSH-sleutel</h1>
+<p>Het dashboard logt met één eigen sleutel in op alle hostingaccounts. Alleen de publieke sleutel staat hieronder; de privésleutel staat versleuteld in de database en is nergens in te zien.</p>
+<% if (envKeyStillSet) { %>
+  <p class="notice"><code>SSH_PRIVATE_KEY</code> is nog ingesteld in Rollout. Het dashboard gebruikt de opgeslagen sleutel en negeert die variabele; je kunt hem uit Rollout verwijderen.</p>
+<% } %>
+<% if (key.public_key) { %>
+  <h2>Publieke sleutel</h2>
+  <div class="secret-actions">
+    <input id="public_key" readonly value="<%= key.public_key %>" aria-label="Publieke sleutel">
+    <button type="button" class="secondary" data-copy data-target="public_key">Kopieer</button>
+  </div>
+  <table class="result">
+    <tr><th>Vingerafdruk</th><td><code><%= key.fingerprint %></code></td></tr>
+    <tr><th>Type</th><td><code><%= key.key_type %></code></td></tr>
+    <tr><th><%= key.adopted ? 'Overgenomen uit SSH_PRIVATE_KEY op' : 'Aangemaakt op' %></th><td><%= fmtDate(key.created_at) %></td></tr>
+  </table>
+<% } %>
+
+<h2>Toevoegen aan een hostingaccount</h2>
+<ol>
+  <li>Kopieer de publieke sleutel hierboven (één regel, begint met <code><%= key.key_type || 'ssh-ed25519' %></code>).</li>
+  <li>In DirectAdmin: open <em>SSH Keys</em> van het account, kies <em>Paste Key</em>, plak de regel en sla op.</li>
+  <li>Of zonder DirectAdmin: voeg de regel als nieuwe regel toe aan <code>~/.ssh/authorized_keys</code> van het account.</li>
+  <li>Controleer bij de site met <strong>Test SSH-verbinding</strong> dat de sleutel werkt.</li>
+</ol>
+
+<h2>Nieuwe sleutel genereren</h2>
+<p>De huidige sleutel werkt daarna direct niet meer voor het dashboard: elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd.</p>
+<form method="post" action="/ssh-key/rotate" data-confirm="Nieuwe SSH-sleutel genereren? De huidige sleutel werkt dan direct niet meer voor het dashboard, en elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd.">
+  <button type="submit" class="danger">Nieuwe sleutel genereren</button>
+</form>
+
+<% if (key.retired.length) { %>
+  <h2>Vorige sleutels</h2>
+  <table class="sites">
+    <thead><tr><th>Vingerafdruk</th><th>Publieke sleutel</th><th>Vervangen op</th></tr></thead>
+    <tbody>
+    <% for (const r of key.retired) { %>
+      <tr>
+        <td data-label="Vingerafdruk"><code><%= r.fingerprint %></code></td>
+        <td data-label="Publieke sleutel"><code style="word-break: break-all"><%= r.public_key %></code></td>
+        <td data-label="Vervangen op"><small><%= fmtDate(r.retired_at) %></small></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+<% } %>
+<p><a href="/">← Alle sites</a></p>

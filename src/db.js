@@ -45,6 +45,17 @@ export async function initDb() {
       finished_at timestamptz
     );
     CREATE INDEX IF NOT EXISTS runs_site_id_idx ON runs (site_id, id DESC);
+    -- One active key (private_key_enc set); retired keys keep only their public half.
+    CREATE TABLE IF NOT EXISTS ssh_keys (
+      id              serial PRIMARY KEY,
+      private_key_enc text,
+      public_key      text NOT NULL,
+      fingerprint     text NOT NULL,
+      key_type        text NOT NULL,
+      adopted         boolean NOT NULL DEFAULT false,
+      created_at      timestamptz NOT NULL DEFAULT now(),
+      retired_at      timestamptz
+    );
     -- A run still 'running' at boot was cut off by a restart.
     UPDATE runs SET status = 'interrupted', finished_at = now() WHERE status = 'running';
   `);

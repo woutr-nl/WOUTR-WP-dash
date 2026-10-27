@@ -15,9 +15,9 @@ Ontbreekt een verplichte variabele of is die ongeldig, dan start de app niet. De
 | `ADMIN_USER` | Gebruikersnaam van het enige beheerdersaccount | ja | tekst |
 | `ADMIN_PASSWORD` | Wachtwoord van het beheerdersaccount | ja | tekst; kies een lang, willekeurig wachtwoord |
 | `SESSION_SECRET` | Ondertekent het login-cookie. Wijzigen logt iedereen uit | ja | minstens 32 tekens, bijv. `openssl rand -base64 32` |
-| `ENCRYPTION_KEY` | Hoofdsleutel waarmee opgeslagen geheimen worden versleuteld. **Kwijt = opgeslagen wachtwoorden onleesbaar**; bewaar hem ook in de wachtwoordkluis. Niet wijzigen zolang er geheimen zijn opgeslagen | ja | base64 van precies 32 bytes: `openssl rand -base64 32` |
+| `ENCRYPTION_KEY` | Hoofdsleutel waarmee opgeslagen geheimen worden versleuteld. **Kwijt = opgeslagen wachtwoorden én de SSH-sleutel van het dashboard onleesbaar**; bewaar hem ook in de wachtwoordkluis. Niet wijzigen zolang er geheimen zijn opgeslagen | ja | base64 van precies 32 bytes: `openssl rand -base64 32` |
 | `POSTGRES_PASSWORD` | Wachtwoord van de Postgres-database; de database én de app gebruiken het | ja | tekst. Wordt alleen bij de eerste start van een leeg volume ingesteld; later wijzigen vereist ook een wijziging in Postgres zelf |
-| `SSH_PRIVATE_KEY` | SSH-sleutel waarmee de commando's inloggen op de hostingaccounts | ja | OpenSSH private key, zie hieronder |
+| `SSH_PRIVATE_KEY` | Alleen voor de eenmalige overname van een bestaande sleutel bij een upgrade; daarna genegeerd en te verwijderen | nee | OpenSSH private key zonder wachtwoordzin, zie *SSH-sleutel* |
 | `GITHUB_TOKEN` | Token met leesrecht op `woutr-nl/WOUTR-WP`: de code (inclusief Git LFS) en de releases | ja | GitHub-token (fine-grained, alleen *Contents: read* op `woutr-nl/WOUTR-WP`) |
 | `BRICKS_LICENSE_KEY` | Bricks-licentiesleutel, alleen doorgegeven bij het deployen van een Bricks-site | ja | tekst |
 | `DASH_IMAGE_TAG` | Tag van de app-image die compose gebruikt, bijv. een commit-SHA om terug te rollen | nee, standaard `latest` | tekst (`latest` of een volledige commit-SHA) |
@@ -25,17 +25,17 @@ Ontbreekt een verplichte variabele of is die ongeldig, dan start de app niet. De
 | `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` | Alleen om de app buiten compose tegen een andere database te draaien | nee, standaard `db`, `5432`, `woutrdash`, `woutrdash` | tekst / getal |
 
 
-### SSH-sleutel invullen
+### SSH-sleutel
 
-Plak de volledige inhoud van het sleutelbestand (bijv. `~/.ssh/id_ed25519`) **zoals hij is, met alle regels**, in het waardeveld van `SSH_PRIVATE_KEY` in Rollout, inclusief de regels `-----BEGIN OPENSSH PRIVATE KEY-----` en `-----END OPENSSH PRIVATE KEY-----`. Voeg geen aanhalingstekens toe.
+Het dashboard heeft één eigen SSH-sleutel (Ed25519, zonder wachtwoordzin) waarmee de commando's op alle hostingaccounts inloggen. Bij de eerste start maakt het die sleutel zelf aan en bewaart hem versleuteld (met `ENCRYPTION_KEY`) in de database. De privésleutel is nergens te zien of te downloaden en wordt in log en resultaat vervangen door `[geheim]`.
 
-Kan een veld geen meerdere regels bevatten, dan mag de sleutel ook op één regel met `\n` tussen de regels:
+De pagina **SSH-sleutel** (in de menubalk) toont de publieke sleutel (één regel, knop **Kopieer**), de vingerafdruk (`SHA256:…`), het type en wanneer hij is aangemaakt of overgenomen, plus hoe je hem op een hostingaccount zet: in DirectAdmin via *SSH Keys*, of als regel in `~/.ssh/authorized_keys`.
 
-```sh
-awk '{printf "%s\\n", $0}' ~/.ssh/id_ed25519
-```
+**Nieuwe sleutel genereren** (op die pagina, met bevestiging) vervangt de sleutel: de oude privésleutel wordt gewist en werkt direct niet meer, dus elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd. Dat kan niet zolang er een run loopt. Runs daarna gebruiken meteen de nieuwe sleutel, zonder herstart. De vorige publieke sleutels en hun vingerafdrukken blijven onder *Vorige sleutels* staan.
 
-Gebruik een aparte sleutel zonder wachtwoordzin voor het dashboard, waarvan de publieke sleutel op de hostingaccounts staat.
+**Upgrade vanaf een versie met `SSH_PRIVATE_KEY`**: staat er nog geen sleutel in de database en is `SSH_PRIVATE_KEY` ingesteld, dan neemt het dashboard die sleutel eenmalig over; bestaande sites blijven werken. Daarna wordt de variabele genegeerd (de sleutelpagina meldt het als hij nog is ingesteld) en kun je hem uit Rollout verwijderen. Plak de sleutel daarvoor zoals hij is, met alle regels; kan het veld geen meerdere regels bevatten, dan mag hij ook op één regel met `\n` tussen de regels (`awk '{printf "%s\\n", $0}' ~/.ssh/id_ed25519`).
+
+**`ENCRYPTION_KEY` kwijt** betekent ook de SSH-sleutel kwijt: de app start dan niet meer met de bestaande database. Begin met een lege tabel `ssh_keys` (`docker compose exec db psql -U woutrdash -c 'DELETE FROM ssh_keys'`) zodat een nieuwe sleutel wordt gegenereerd, en zet de nieuwe publieke sleutel opnieuw op elk hostingaccount.
 
 ## CI en images
 
@@ -76,6 +76,7 @@ Op de pagina **Runs** van een site staan de knoppen **Deployen**, **Bijwerken** 
 - **Live gaan**: toont per controle (`check_https`, `check_debug`, `check_smtp`) geslaagd, mislukt of niet gecontroleerd. Mislukt er een (exitcode 3), dan blijft de indexering uit; alleen via **Toch live gaan** (met bevestiging) volgt een run met `--force`.
 - Per site loopt maximaal één run tegelijk; een tweede wordt geweigerd. Een site met een lopende run kan niet worden verwijderd.
 - Het log (stderr van het commando) is tijdens de run live te volgen. Een run die werd afgebroken, bijvoorbeeld door een herstart van het dashboard, staat daarna als **onderbroken**.
+- **Test SSH-verbinding** (op de pagina Runs) logt met de dashboardsleutel in op het SSH-doel van de site en verandert niets op de server. De uitkomst: verbinding geslaagd, sleutel niet geaccepteerd (zet de publieke sleutel op het hostingaccount), server niet bereikbaar (time-out of geweigerd), of hostsleutel veranderd. Voor hostsleutels gelden dezelfde regels als bij runs. De test staat niet in de geschiedenis en kan ook tijdens een run.
 - Elke run bewaart actie, keuzes, start- en eindtijd, uitkomst, exitcode, het `key=value`-resultaat en het volledige log.
 
 **Geheimen** gaan alleen via omgevingsvariabelen naar de commando's (`WP_DB_PASS`, `WOUTR_SMTP_PASS`, `BRICKS_LICENSE_KEY`, `GH_TOKEN`), nooit als argument. De commando's krijgen geen andere variabelen van het dashboard mee. Alle geheimen (database-, SMTP- en Bricks-wachtwoord, SSH-sleutel, GitHub-token en het gegenereerde beheerderswachtwoord) worden in log en resultaat vervangen door `[geheim]`; het beheerderswachtwoord staat alleen versleuteld bij de site.
@@ -94,11 +95,11 @@ export ADMIN_PASSWORD='kies-een-wachtwoord'
 export SESSION_SECRET="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export POSTGRES_PASSWORD='lokaal-db-wachtwoord'
-export SSH_PRIVATE_KEY=dummy GITHUB_TOKEN=dummy BRICKS_LICENSE_KEY=dummy
+export GITHUB_TOKEN=dummy BRICKS_LICENSE_KEY=dummy
 docker compose up
 ```
 
-Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. Open daarna <http://localhost:3000>. Met dummywaarden voor `SSH_PRIVATE_KEY`, `GITHUB_TOKEN` en `BRICKS_LICENSE_KEY` werkt het beheer van sites, maar mislukken runs. `POSTGRES_PASSWORD` is hier bewust een vaste waarde: Postgres stelt het wachtwoord alleen in bij de eerste start van een leeg volume, dus een ander wachtwoord bij een volgende start geeft `password authentication failed` en een app die blijft herstarten. Wil je het wachtwoord wijzigen, wis dan eerst de lokale database met `docker compose down -v`. Bewaar ook `ENCRYPTION_KEY` als je dezelfde database opnieuw wilt gebruiken, anders zijn de opgeslagen wachtwoorden onleesbaar.
+Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. Open daarna <http://localhost:3000>. Het dashboard maakt bij de start zelf een SSH-sleutel aan. Met dummywaarden voor `GITHUB_TOKEN` en `BRICKS_LICENSE_KEY` werkt het beheer van sites, maar mislukken runs. `POSTGRES_PASSWORD` is hier bewust een vaste waarde: Postgres stelt het wachtwoord alleen in bij de eerste start van een leeg volume, dus een ander wachtwoord bij een volgende start geeft `password authentication failed` en een app die blijft herstarten. Wil je het wachtwoord wijzigen, wis dan eerst de lokale database met `docker compose down -v`. Bewaar ook `ENCRYPTION_KEY` als je dezelfde database opnieuw wilt gebruiken, anders zijn de opgeslagen wachtwoorden en de SSH-sleutel onleesbaar.
 
 ## Beveiliging
 
