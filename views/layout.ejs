@@ -74,7 +74,7 @@
         const res = await fetch(btn.dataset.wpLogin, { method: 'POST' }).catch(() => null);
         const data = res ? await res.json().catch(() => ({})) : {};
         let error = null;
-        if (data.ok && data.login_url) {
+        if (data.ok && /^https:\/\//.test(data.login_url)) {
           // No 'noopener' feature: it makes window.open return null, hiding a blocked pop-up. Cut opener by hand.
           const w = window.open(data.login_url, '_blank');
           if (w) w.opener = null;

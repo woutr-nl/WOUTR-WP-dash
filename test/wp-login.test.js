@@ -37,7 +37,11 @@ if [ "$2" = fail@host ]; then
   echo status=failed; echo failed_step=ssh; echo error=De server is niet bereikbaar.; exit 1
 fi
 echo status=ok
-echo login_url=https://acme.example/?woutr_login=TESTTOKEN
+case "$2" in
+  evil@host) echo 'login_url=javascript:alert(1)' ;;
+  otherhost@host) echo 'login_url=https://not-acme.example/?woutr_login=X' ;;
+  *) echo login_url=https://acme.example/?woutr_login=TESTTOKEN ;;
+esac
 `;
 
 function git(...args) {
@@ -48,10 +52,10 @@ let app, base, cookie;
 const post = (path, withCookie = true) => fetch(base + path, {
   method: 'POST', redirect: 'manual', headers: { origin: base, ...(withCookie && { cookie }) },
 });
-async function addSite(sshTarget, deployed = true) {
+async function addSite(sshTarget, deployed = true, siteUrl = `https://${randomBytes(4).toString('hex')}.nl`) {
   const { rows: [{ id }] } = await db.query(`INSERT INTO sites (client_slug, theme_type, ssh_target, wp_path, site_url, site_title, admin_email, admin_pass_enc)
     VALUES ('acme', 'block', $1, '/var/www', $2, 'Acme', 'a@acme.nl', $3) RETURNING id`,
-  [sshTarget, `https://${randomBytes(4).toString('hex')}.nl`, deployed ? encrypt('geheim', config.encryptionKey) : null]);
+  [sshTarget, siteUrl, deployed ? encrypt('geheim', config.encryptionKey) : null]);
   return id;
 }
 
@@ -74,7 +78,7 @@ before(async () => {
 after(() => app.close());
 
 test('returns the login URL from tools/login.sh (clone, then fetch on the second call)', async () => {
-  const id = await addSite('deploy@acme.example');
+  const id = await addSite('deploy@acme.example', true, 'https://acme.example');
   for (let i = 0; i < 2; i++) {
     const res = await post(`/sites/${id}/wp-login`);
     assert.equal(res.status, 200);
@@ -87,6 +91,15 @@ test('returns the login URL from tools/login.sh (clone, then fetch on the second
 test('a remote failure returns the Dutch error from the script', async () => {
   const id = await addSite('fail@host');
   assert.deepEqual(await (await post(`/sites/${id}/wp-login`)).json(), { ok: false, message: 'De server is niet bereikbaar.' });
+});
+
+test('a login_url that is not https on the site\'s own domain is rejected', async () => {
+  for (const target of ['evil@host', 'otherhost@host']) {
+    const id = await addSite(target, true, `https://acme.example/${target}`); // same host, distinct (unique) site_url
+    const body = await (await post(`/sites/${id}/wp-login`)).json();
+    assert.deepEqual(body, { ok: false, message: 'De server gaf een ongeldige inloglink terug.' });
+    assert.equal('login_url' in body, false);
+  }
 });
 
 test('an unauthenticated request is redirected to the login page', async () => {

@@ -219,9 +219,10 @@ export async function createWpLoginUrl(site) {
   if (!await lock) return { ok: false, message: 'WOUTR-WP ophalen mislukt; probeer het later opnieuw.' };
   let code;
   let stdout = '';
+  const signal = AbortSignal.timeout(60_000);
   try {
     code = await exec('bash', ['tools/login.sh', '--ssh', site.ssh_target, '--path', site.wp_path, '--admin-user', site.admin_user], {
-      cwd: CHECKOUT, env: baseEnv(), signal: AbortSignal.timeout(60_000),
+      cwd: CHECKOUT, env: baseEnv(), signal,
       onStdout: (c) => { stdout += c; }, onStderr: (c) => stderr.push(c),
     });
   } finally {
@@ -229,7 +230,16 @@ export async function createWpLoginUrl(site) {
   }
   stderr.end();
   const { result } = parseResult(stdout);
-  if (code === 0 && result.login_url) return { ok: true, loginUrl: result.login_url };
+  if (code === 0 && result.login_url) {
+    // login_url comes from the remote host: only an https URL on the site's own domain may reach the browser (XSS via javascript: otherwise).
+    let valid = false;
+    try {
+      const url = new URL(result.login_url);
+      valid = url.protocol === 'https:' && url.host === new URL(site.site_url).host;
+    } catch {}
+    return valid ? { ok: true, loginUrl: result.login_url } : { ok: false, message: 'De server gaf een ongeldige inloglink terug.' };
+  }
+  if (signal.aborted) return { ok: false, message: 'Time-out: de inloglink kon niet binnen 60 seconden worden aangemaakt.' };
   const scrub = makeScrubber([getActivePrivateKey(), config.sshPrivateKey]);
   const last = scrub(lines.map((l) => l.trim()).filter(Boolean).pop() ?? '');
   return { ok: false, message: result.error || last || 'Inloglink aanmaken mislukt.' };
