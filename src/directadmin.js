@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+
 // DirectAdmin reseller client (legacy API, Basic auth, json=yes) and the per-account
 // key installation. DB- and config-free: callers pass conn = { url, username, password }.
 // The password only ever travels in the Authorization header, never in a URL or message.
@@ -9,6 +11,7 @@ export const DA_MESSAGE = {
   no_user: 'Hosting-account niet gevonden onder deze reseller.',
   ssh_not_allowed: 'SSH is niet toegestaan voor dit hosting-account (pakket of reseller staat het niet toe).',
   denied: 'DirectAdmin weigerde de opdracht.',
+  db_denied: 'DirectAdmin weigerde de database aan te maken.',
 };
 
 export const KEY_LABEL = 'woutr-dash';
@@ -54,7 +57,7 @@ export async function daRequest(conn, cmd, { method = 'GET', params = {}, loginA
 }
 
 // Dutch message for a failure; a 'denied' answer is mapped to deniedCode when given.
-function messageFor(e, deniedCode) {
+export function messageFor(e, deniedCode) {
   if (!(e instanceof DaError)) return DA_MESSAGE.unreachable;
   if (e.code === 'denied' && deniedCode) return new DaError(deniedCode, e.detail).message;
   return e.message;
@@ -65,9 +68,46 @@ function userList(data) {
   return (Array.isArray(list) ? list : Object.values(list ?? {})).filter((u) => typeof u === 'string');
 }
 
+export const listUsers = async (conn) => userList(await daRequest(conn, 'CMD_API_SHOW_USERS'));
+export const listDomains = async (conn, user) => userList(await daRequest(conn, 'CMD_API_SHOW_DOMAINS', { loginAs: user }));
+// Full names, like 'acct_wp'.
+export const listDatabases = async (conn, user) => userList(await daRequest(conn, 'CMD_API_DATABASES', { loginAs: user }));
+
+// Creates database and user `<user>_<suffix>` with the given password. Throws DaError.
+export async function createDatabase(conn, user, { suffix, password }) {
+  try {
+    await daRequest(conn, 'CMD_API_DATABASES', {
+      method: 'POST', loginAs: user,
+      params: { action: 'create', name: suffix, user: suffix, passwd: password, passwd2: password },
+    });
+  } catch (e) {
+    if (!(e instanceof DaError)) throw e;
+    // daRequest only scrubs the reseller secret; DirectAdmin may echo this password too.
+    throw new DaError(e.code === 'denied' ? 'db_denied' : e.code, e.detail.replaceAll(password, '***'));
+  }
+  return { name: `${user}_${suffix}`, user: `${user}_${suffix}` };
+}
+
+// First suffix (slug-based, then 2…9) whose `<user>_<suffix>` is not taken; null when all are.
+export function freeDbSuffix(existingNames, user, clientSlug) {
+  const base = String(clientSlug ?? '').replace(/[^a-z0-9]/g, '').slice(0, 12) || 'wp';
+  for (const suffix of [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((i) => `${base}${i}`)]) {
+    if (!existingNames.includes(`${user}_${suffix}`)) return suffix;
+  }
+  return null;
+}
+
+const PASS_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+export function generateDbPassword() {
+  for (;;) {
+    const p = Array.from({ length: 24 }, () => PASS_CHARS[randomInt(PASS_CHARS.length)]).join('');
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p) && /\d/.test(p)) return p;
+  }
+}
+
 export async function testConnection(conn) {
   try {
-    const users = userList(await daRequest(conn, 'CMD_API_SHOW_USERS'));
+    const users = await listUsers(conn);
     return { ok: true, message: `Verbinding geslaagd: reseller-account met ${users.length} gebruikers.` };
   } catch (e) {
     return { ok: false, message: messageFor(e, 'not_reseller') };

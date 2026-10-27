@@ -3,41 +3,85 @@
   const e = (f) => errors[f] ? `<span class="error">${errors[f].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>` : '';
   // Defaults (port 587, tls) are shown as empty so a Bricks site submits no SMTP values.
   const action = site.id ? `/sites/${site.id}` : '/sites';
+  const THEME_LABEL = { block: 'Blokthema', bricks: 'Bricks' };
+  const knownClient = clients.list?.find((c) => c.slug === site.client_slug && c.theme_type);
+  const dbMode = site.db_mode ?? (site.db_name ? 'existing' : 'create');
+  const formData = JSON.stringify({
+    clients, daUsers, isNew: !site.id,
+    site: Object.fromEntries(['client_slug', 'theme_type', 'da_username', 'da_domain', 'ssh_target', 'wp_path', 'site_url', 'db_name'].map((f) => [f, site[f] ?? null])),
+  }).replace(/</g, '\\u003c');
 %>
 <h1><%= title %></h1>
 <% if (Object.keys(errors).length) { %>
   <p class="error">Controleer de gemarkeerde velden.</p>
 <% } %>
-<form method="post" action="<%= action %>" class="site-form" novalidate>
+<p id="mismatch" class="notice" hidden></p>
+<form method="post" action="<%= action %>" class="site-form" id="site-form" novalidate>
   <fieldset>
     <legend>Site</legend>
     <label>Sitetitel
       <input name="site_title" value="<%= v('site_title') %>" required><%- e('site_title') %>
     </label>
     <label>Site-URL
-      <input name="site_url" type="url" value="<%= v('site_url') %>" placeholder="https://www.voorbeeld.nl" required><%- e('site_url') %>
+      <input name="site_url" id="site_url" type="url" value="<%= v('site_url') %>" placeholder="https://www.voorbeeld.nl" required><%- e('site_url') %>
     </label>
     <label>Klant-slug <small>(map onder <code>clients/</code> in WOUTR-WP)</small>
-      <input name="client_slug" value="<%= v('client_slug') %>" pattern="[a-z0-9][a-z0-9._\-]*" required><%- e('client_slug') %>
+      <% if (clients.list) { %>
+        <select name="client_slug" id="client_slug" required>
+          <option value="" data-theme="">— kies een klant —</option>
+          <% for (const c of clients.list) { if (c.slug === site.client_slug && !c.theme_type) continue; %>
+            <option value="<%= c.slug %>" data-theme="<%= c.theme_type ?? '' %>" <%= c.theme_type ? '' : 'disabled' %> <%= c.slug === site.client_slug ? 'selected' : '' %>><%= c.slug %><%= c.theme_type ? '' : ' (thematype onbekend)' %></option>
+          <% } %>
+          <% if (site.client_slug && !knownClient) { %>
+            <option value="<%= site.client_slug %>" data-theme="<%= v('theme_type') %>" selected><%= site.client_slug %> (niet gevonden onder clients/)</option>
+          <% } %>
+        </select>
+      <% } else { %>
+        <span class="error"><%= clients.error %><%= site.id ? ' De opgeslagen klant-slug blijft staan.' : ' Een nieuwe site kan pas worden opgeslagen als de lijst laadt.' %></span>
+        <input <%= site.id ? 'name=client_slug' : 'disabled' %> id="client_slug" value="<%= v('client_slug') %>" data-theme="<%= v('theme_type') %>" readonly>
+      <% } %>
+      <%- e('client_slug') %>
     </label>
-    <label>Thematype
-      <select name="theme_type" id="theme_type">
-        <option value="block" <%= v('theme_type') !== 'bricks' ? 'selected' : '' %>>Blokthema</option>
-        <option value="bricks" <%= v('theme_type') === 'bricks' ? 'selected' : '' %>>Bricks</option>
-      </select><%- e('theme_type') %>
+    <label>Thematype <small>(volgt uit de <code>style.css</code> van de klant)</small>
+      <input id="theme_label" value="<%= THEME_LABEL[knownClient?.theme_type ?? site.theme_type] ?? '—' %>" readonly tabindex="-1"><%- e('theme_type') %>
     </label>
   </fieldset>
 
   <fieldset>
     <legend>Hosting</legend>
+    <label>Hosting-account (DirectAdmin-gebruiker) <small>(optioneel, voor automatische sleutelinstallatie)</small>
+      <% if (daUsers === null) { %>
+        <input name="da_username" value="<%= v('da_username') %>" autocomplete="off">
+      <% } else if (daUsers.list) { %>
+        <select name="da_username" id="da_username">
+          <option value="">geen</option>
+          <% for (const u of daUsers.list) { %>
+            <option value="<%= u %>" <%= u === site.da_username ? 'selected' : '' %>><%= u %></option>
+          <% } %>
+          <% if (site.da_username && !daUsers.list.includes(site.da_username)) { %>
+            <option value="<%= site.da_username %>" selected><%= site.da_username %> (niet gevonden onder de reseller)</option>
+          <% } %>
+        </select>
+      <% } else { %>
+        <span class="error"><%= daUsers.error %></span>
+        <input name="da_username" id="da_username" value="<%= v('da_username') %>" readonly>
+      <% } %>
+      <%- e('da_username') %>
+    </label>
+    <% if (daUsers !== null) { %>
+      <label id="domain_row" hidden>Domein
+        <select name="da_domain" id="da_domain">
+          <option value="">— kies een domein —</option>
+          <% if (site.da_domain) { %><option value="<%= site.da_domain %>" selected><%= site.da_domain %></option><% } %>
+        </select>
+        <span class="error" id="da_status" hidden></span><%- e('da_domain') %>
+      </label>
+    <% } %>
     <label>SSH-doel <small>(gebruiker@host)</small>
-      <input name="ssh_target" value="<%= v('ssh_target') %>" placeholder="gebruiker@host" required><%- e('ssh_target') %>
+      <input name="ssh_target" id="ssh_target" value="<%= v('ssh_target') %>" placeholder="gebruiker@host" required><%- e('ssh_target') %>
     </label>
     <label>WordPress-pad
-      <input name="wp_path" value="<%= v('wp_path') %>" placeholder="/home/gebruiker/public_html" required><%- e('wp_path') %>
-    </label>
-    <label>Hosting-account (DirectAdmin-gebruiker) <small>(optioneel, voor automatische sleutelinstallatie)</small>
-      <input name="da_username" value="<%= v('da_username') %>" autocomplete="off"><%- e('da_username') %>
+      <input name="wp_path" id="wp_path" value="<%= v('wp_path') %>" placeholder="/home/gebruiker/public_html" required><%- e('wp_path') %>
     </label>
   </fieldset>
 
@@ -53,16 +97,35 @@
 
   <fieldset>
     <legend>Database</legend>
-    <label>Databasenaam
-      <input name="db_name" value="<%= v('db_name') %>"><%- e('db_name') %>
-    </label>
-    <label>Databasegebruiker
-      <input name="db_user" value="<%= v('db_user') %>"><%- e('db_user') %>
-    </label>
-    <label>Databasehost
-      <input name="db_host" value="<%= v('db_host') %>" placeholder="localhost"><%- e('db_host') %>
-    </label>
-    <%- include('secret', { field: 'db_pass', label: 'Databasewachtwoord', stored: site.has_db_pass, site, error: e('db_pass') }) %>
+    <% if (site.db_create_error) { %>
+      <p class="error">Database aanmaken is mislukt: <%= site.db_create_error %> Kies "Nieuwe database aanmaken" en sla op om het opnieuw te proberen.</p>
+    <% } %>
+    <% if (daUsers !== null) { %>
+      <div id="db_da" hidden>
+        <label class="inline"><input type="radio" name="db_mode" value="create" <%= dbMode === 'create' ? 'checked' : '' %>> Nieuwe database aanmaken</label>
+        <label class="inline"><input type="radio" name="db_mode" value="existing" <%= dbMode === 'existing' ? 'checked' : '' %>> Bestaande database</label>
+        <p id="db_create_hint" class="empty">Bij opslaan maakt het dashboard op dit account een database en databasegebruiker aan, met een gegenereerd wachtwoord.</p>
+        <label id="db_pick_row">Bestaande database
+          <select name="db_name" id="db_pick">
+            <option value="">— kies een database —</option>
+            <% if (site.db_name) { %><option value="<%= site.db_name %>" selected><%= site.db_name %></option><% } %>
+          </select>
+        </label>
+      </div>
+    <% } %>
+    <div id="db_fields">
+      <label id="db_name_row">Databasenaam
+        <input name="db_name" id="db_name" value="<%= v('db_name') %>">
+      </label>
+      <%- e('db_name') %>
+      <label>Databasegebruiker
+        <input name="db_user" id="db_user" value="<%= v('db_user') %>"><%- e('db_user') %>
+      </label>
+      <label>Databasehost
+        <input name="db_host" value="<%= v('db_host') %>" placeholder="localhost"><%- e('db_host') %>
+      </label>
+      <%- include('secret', { field: 'db_pass', label: 'Databasewachtwoord', stored: site.has_db_pass, site, error: e('db_pass') }) %>
+    </div>
   </fieldset>
 
   <fieldset id="smtp">
@@ -95,16 +158,147 @@
   </fieldset>
 
   <div class="bar">
-    <button type="submit">Opslaan</button>
+    <button type="submit" id="save">Opslaan</button>
     <a href="/">Annuleren</a>
+    <span class="error" id="submit_block" hidden></span>
   </div>
 </form>
 
+<script id="form-data" type="application/json"><%- formData %></script>
 <script>
-  // Bricks sites take no SMTP settings: disable the fieldset (the server rejects them too).
-  const theme = document.getElementById('theme_type');
-  const smtp = document.getElementById('smtp');
-  const sync = () => { smtp.disabled = theme.value === 'bricks'; };
-  theme.addEventListener('change', sync);
-  sync();
+  (() => {
+    const data = JSON.parse(document.getElementById('form-data').textContent);
+    const stored = data.site;
+    const $ = (id) => document.getElementById(id);
+    const LABEL = { block: 'Blokthema', bricks: 'Bricks' };
+
+    // Theme type follows the chosen client; Bricks sites take no SMTP settings (the server rejects them too).
+    const slug = $('client_slug');
+    const themeOf = () => slug.selectedOptions?.[0]?.dataset.theme ?? slug.dataset.theme ?? '';
+    const syncTheme = () => {
+      const t = themeOf();
+      $('theme_label').value = LABEL[t] ?? '—';
+      $('smtp').disabled = t === 'bricks';
+    };
+    slug.addEventListener('change', syncTheme);
+    syncTheme();
+
+    // Submit is blocked while a list a new choice depends on failed to load.
+    const blocks = { clients: data.isNew && !data.clients.list ? 'De klantenlijst is niet geladen.' : '' };
+    const syncSubmit = () => {
+      const msg = Object.values(blocks).filter(Boolean).join(' ');
+      $('save').disabled = !!msg;
+      $('submit_block').textContent = msg ? `Opslaan kan nog niet: ${msg}` : '';
+      $('submit_block').hidden = !msg;
+    };
+    syncSubmit();
+
+    const acct = $('da_username');
+    if (data.daUsers === null || !acct) return; // no reseller connection: everything stays free text
+
+    const domain = $('da_domain');
+    const status = $('da_status');
+    const hosting = ['ssh_target', 'wp_path', 'site_url'].map($);
+    const manual = Object.fromEntries(hosting.map((el) => [el.id, el.value]));
+    hosting.forEach((el) => el.addEventListener('input', () => { if (!el.readOnly) manual[el.id] = el.value; }));
+    const pattern = (u, d) => ({ ssh_target: `${u}@${d}`, wp_path: `/home/${u}/domains/${d}/public_html`, site_url: `https://${d}` });
+
+    // Account + domain: the hosting fields are derived and locked (the server recomputes them anyway).
+    // fill=false keeps the shown (stored) values on load, so a deviation stays visible.
+    const syncHosting = (fill = true) => {
+      const lock = !!(acct.value && domain.value);
+      const p = pattern(acct.value, domain.value);
+      for (const el of hosting) {
+        if (lock && fill) el.value = p[el.id];
+        else if (!lock && el.readOnly) el.value = manual[el.id];
+        el.readOnly = lock;
+      }
+    };
+
+    const fill = (sel, items, keep, placeholder) => {
+      sel.replaceChildren(new Option(placeholder, ''), ...items.map((x) => new Option(x, x)));
+      if (keep && !items.includes(keep)) sel.add(new Option(`${keep} (niet gevonden)`, keep));
+      sel.value = keep ?? '';
+    };
+
+    // Database: with an account, create a new one or pick an existing one; otherwise the manual fields.
+    const dbPick = $('db_pick');
+    const modes = document.querySelectorAll('input[name=db_mode]');
+    const enable = (root, on) => root.querySelectorAll('input, select, button').forEach((x) => { x.disabled = !on; });
+    const syncDb = () => {
+      const on = !!acct.value;
+      const mode = [...modes].find((r) => r.checked)?.value;
+      $('db_da').hidden = !on;
+      enable($('db_da'), on);
+      $('db_create_hint').hidden = mode !== 'create';
+      $('db_pick_row').hidden = mode !== 'existing';
+      dbPick.disabled = !on || mode !== 'existing';
+      const fields = !on || mode === 'existing';
+      $('db_fields').hidden = !fields;
+      enable($('db_fields'), fields);
+      $('db_name_row').hidden = on;
+      $('db_name').disabled = on;
+    };
+    modes.forEach((r) => r.addEventListener('change', syncDb));
+    dbPick.addEventListener('change', () => { if (dbPick.value) $('db_user').value = dbPick.value; });
+
+    const notices = [];
+    const showNotices = () => {
+      $('mismatch').textContent = notices.join(' ');
+      $('mismatch').hidden = !notices.length;
+    };
+
+    let seq = 0;
+    const loadAccount = async (initial) => {
+      const user = acct.value;
+      const mine = ++seq;
+      $('domain_row').hidden = !user;
+      domain.disabled = !user;
+      status.hidden = true;
+      blocks.da = '';
+      syncDb();
+      if (!user) { domain.value = ''; syncHosting(); syncSubmit(); return; }
+      const keep = user === stored.da_username;
+      let r;
+      try {
+        r = await (await fetch(`/da/accounts/${encodeURIComponent(user)}`)).json();
+      } catch {
+        r = { ok: false, error: 'Het DirectAdmin-paneel is niet bereikbaar.' };
+      }
+      if (mine !== seq) return;
+      fill(domain, r.domains ?? [], keep ? stored.da_domain : null, '— kies een domein —');
+      fill(dbPick, r.databases ?? [], keep ? stored.db_name : null, '— kies een database —');
+      if (!r.ok) {
+        status.textContent = r.error;
+        status.hidden = false;
+        if (!keep) blocks.da = 'De domeinen en databases van dit hosting-account zijn niet geladen.';
+      }
+      syncHosting(!initial);
+      syncSubmit();
+      if (initial && data.isNew === false) {
+        if (r.ok && stored.da_domain && !r.domains.includes(stored.da_domain)) notices.push(`Opgeslagen domein ${stored.da_domain} niet gevonden onder dit hosting-account.`);
+        if (r.ok && stored.db_name && !r.databases.includes(stored.db_name)) notices.push(`Opgeslagen database ${stored.db_name} niet gevonden onder dit hosting-account.`);
+        showNotices();
+      }
+    };
+    acct.addEventListener('change', () => loadAccount(false));
+    domain.addEventListener('change', () => syncHosting());
+
+    // Existing site: say which stored values don't match the lists or the pattern.
+    if (!data.isNew) {
+      if (data.clients.list && stored.client_slug && !data.clients.list.some((c) => c.slug === stored.client_slug && c.theme_type))
+        notices.push(`Opgeslagen klant-slug ${stored.client_slug} niet gevonden onder clients/ (of thematype onbekend).`);
+      if (stored.da_username && data.daUsers.list && !data.daUsers.list.includes(stored.da_username))
+        notices.push(`Opgeslagen hosting-account ${stored.da_username} niet gevonden onder de reseller.`);
+      if (stored.da_username && stored.da_domain) {
+        const p = pattern(stored.da_username, stored.da_domain);
+        const off = [['ssh_target', 'SSH-doel'], ['wp_path', 'WordPress-pad'], ['site_url', 'Site-URL']].filter(([f]) => stored[f] !== p[f]).map(([, l]) => l);
+        if (off.length) notices.push(`Wijkt af van het patroon: ${off.join(', ')}. Bij opslaan met dit account en domein worden ze volgens het patroon ingevuld.`);
+      } else if (stored.da_username) {
+        notices.push('Nog geen domein gekozen; de hostingvelden blijven handmatig tot je er een kiest.');
+      }
+      showNotices();
+    }
+    loadAccount(true);
+  })();
 </script>

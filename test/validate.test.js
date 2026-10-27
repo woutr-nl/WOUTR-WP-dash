@@ -124,3 +124,15 @@ test('validateDaConnection: https only, normalized, password required on create'
   assert.equal(keep.values.password, undefined);
   assert.ok(validateDaConnection({ ...ok, password: 'a\nb' }).errors.password);
 });
+
+test('da_domain: lowercased, a real domain name, dropped without an account', () => {
+  const da = { ...base, da_username: 'klant' };
+  assert.equal(validateSite({ ...da, da_domain: ' Voorbeeld.NL ' }).values.da_domain, 'voorbeeld.nl');
+  for (const bad of ['-x.nl', 'voorbeeld', 'a\nb.nl', 'a b.nl', 'x.nl.']) {
+    assert.ok(validateSite({ ...da, da_domain: bad }).errors.da_domain, bad);
+  }
+  const none = validateSite({ ...base, da_domain: '-x' });
+  assert.deepEqual(none.errors, {});
+  assert.equal(none.values.da_domain, null);
+  assert.equal(validateSite(da).values.da_domain, null);
+});

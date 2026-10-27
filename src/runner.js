@@ -218,3 +218,28 @@ export async function listReleases(slug) {
     .sort((a, b) => compareVersions(b, a));
   return { theme: pick(`${slug}-v`), parent: pick('woutr-v') };
 }
+
+const THEME_BY_TEMPLATE = { woutr: 'block', bricks: 'bricks' };
+
+// Client folders under clients/ on main → [{ slug, theme_type }], theme_type from the
+// `Template:` header of their style.css ('block' | 'bricks' | null when undeterminable).
+// ponytail: uncached, one request per client; add a 60 s in-memory cache if GitHub rate limits bite.
+export async function listClients() {
+  const get = (path, accept) => fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=main`, {
+    headers: { Authorization: `Bearer ${config.githubToken}`, Accept: accept },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const res = await get('clients', 'application/vnd.github+json');
+  if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+  const dirs = (await res.json()).filter((e) => e.type === 'dir').map((e) => e.name);
+  return Promise.all(dirs.map(async (slug) => {
+    try {
+      const css = await get(`clients/${encodeURIComponent(slug)}/style.css`, 'application/vnd.github.raw+json');
+      if (!css.ok) return { slug, theme_type: null };
+      const template = (await css.text()).match(/^\s*\*?\s*Template:\s*(\S+)/mi)?.[1].toLowerCase();
+      return { slug, theme_type: Object.hasOwn(THEME_BY_TEMPLATE, template ?? '') ? THEME_BY_TEMPLATE[template] : null };
+    } catch {
+      return { slug, theme_type: null };
+    }
+  }));
+}
