@@ -336,16 +336,22 @@ export function createApp() {
 
   app.post('/instellingen', async (req, res) => {
     const body = req.body ?? {};
-    const hasPassword = await daConfigured();
+    const { rows: [row] } = await pool.query('SELECT url, username FROM directadmin');
+    const hasPassword = Boolean(row);
     const { values, errors } = validateDaConnection(body, { hasPassword });
+    // The stored secret only ever goes to the panel and user it was entered for.
+    if (row && values.password === undefined && (values.url !== row.url || values.username !== row.username))
+      errors.password ??= 'Vul het wachtwoord of de login key opnieuw in als je de panel-URL of gebruikersnaam wijzigt.';
     if (Object.keys(errors).length) {
       const str = (k) => (typeof body[k] === 'string' ? body[k] : '');
       return render(res, 'instellingen', settingsLocals({ url: str('url'), username: str('username'), has_password: hasPassword }, { errors }), 422);
     }
-    const enc = values.password === undefined ? null : encrypt(values.password, config.encryptionKey);
-    await pool.query(`INSERT INTO directadmin (id, url, username, password_enc) VALUES (true, $1, $2, $3)
-      ON CONFLICT (id) DO UPDATE SET url = $1, username = $2, password_enc = COALESCE($3, directadmin.password_enc), updated_at = now()`,
-    [values.url, values.username, enc]);
+    // Without a new secret, URL and username equal the stored row: nothing to write.
+    if (values.password !== undefined) {
+      await pool.query(`INSERT INTO directadmin (id, url, username, password_enc) VALUES (true, $1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET url = $1, username = $2, password_enc = $3, updated_at = now()`,
+      [values.url, values.username, encrypt(values.password, config.encryptionKey)]);
+    }
     res.redirect('/instellingen?opgeslagen=1');
   });
 
