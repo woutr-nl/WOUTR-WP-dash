@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import {
   testConnection, ensureKeyInstalled, keyBlob, findAuthorizedEntries, buildCustomizeParams, DA_MESSAGE,
+  listDomains, listDatabases, createDatabase, freeDbSuffix, generateDbPassword,
 } from '../src/directadmin.js';
 
 const CUR = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICurrentCurrentCurrentCurrentCurrentCurr woutr-wp-dash';
@@ -21,6 +22,8 @@ beforeEach(() => {
         config: { username: 'klant', ssh: 'ON', package: 'basis', bandwidth: 'unlimited', quota: '1000', cgi: 'ON', php: 'OFF', git: 'ON', email_daily_limit: '250' },
         allowSsh: true,
         keys: {},
+        domains: ['klant.nl', 'shop.klant.nl'],
+        databases: ['klant_wp'],
       },
     },
   };
@@ -49,6 +52,9 @@ before(async () => {
         if (!state.reseller.isReseller) return send(res, 200, { error: '1', text: 'You cannot execute that command' });
         return send(res, 200, { list: Object.keys(state.users) });
       }
+      if (cmd === 'CMD_API_SHOW_DOMAINS') return send(res, 200, { list: u.domains });
+      if (cmd === 'CMD_API_DATABASES' && req.method === 'GET') return send(res, 200, { list: u.databases });
+      if (cmd === 'CMD_API_DATABASES' && params.action === 'create') return send(res, 200, { error: '1', text: 'Password rejected', details: `pw ${params.passwd} too weak` });
       if (cmd === 'CMD_API_SHOW_USER_CONFIG') return send(res, 200, u.config);
       if (cmd === 'CMD_API_MODIFY_USER') {
         if (u.allowSsh && params.ssh === 'ON') u.config.ssh = 'ON';
@@ -200,4 +206,39 @@ test('buildCustomizeParams: deny-list, ON/unlimited/number rules, pass-through',
     ns1: 'ns1.x.nl', ns2: 'ns2.x.nl', language: 'nl', skin: 'evolution',
     ssh: 'ON', action: 'customize', user: 'klant',
   });
+});
+
+test('freeDbSuffix: slug-based, skips taken names, null when all are taken', () => {
+  assert.equal(freeDbSuffix([], 'acct', 'innerhaven-bricks'), 'innerhavenbr');
+  assert.equal(freeDbSuffix(['acct_vensa', 'acct_vensa2'], 'acct', 'vensa'), 'vensa3');
+  assert.equal(freeDbSuffix(['other_vensa'], 'acct', 'vensa'), 'vensa');
+  assert.equal(freeDbSuffix([], 'acct', '._-'), 'wp');
+  const all = ['', 2, 3, 4, 5, 6, 7, 8, 9].map((i) => `acct_vensa${i}`);
+  assert.equal(freeDbSuffix(all, 'acct', 'vensa'), null);
+});
+
+test('generateDbPassword: 24 chars with lower, upper and digit', () => {
+  for (let i = 0; i < 50; i++) {
+    const p = generateDbPassword();
+    assert.match(p, /^[A-Za-z0-9]{24}$/);
+    assert.ok(/[a-z]/.test(p) && /[A-Z]/.test(p) && /\d/.test(p));
+  }
+});
+
+test('listDomains / listDatabases log in as the account', async () => {
+  assert.deepEqual(await listDomains(conn, 'klant'), ['klant.nl', 'shop.klant.nl']);
+  assert.deepEqual(await listDatabases(conn, 'klant'), ['klant_wp']);
+  assert.deepEqual(calls.map((c) => [c.cmd, c.as]), [['CMD_API_SHOW_DOMAINS', 'klant'], ['CMD_API_DATABASES', 'klant']]);
+});
+
+test('createDatabase posts the create params and scrubs the password from a refusal', async () => {
+  const password = 'Gen3ratedPassw0rdXyzAbc1';
+  await assert.rejects(createDatabase(conn, 'klant', { suffix: 'vensa', password }), (e) => {
+    assert.equal(e.message, `${DA_MESSAGE.db_denied} (Password rejected: pw *** too weak)`);
+    assert.ok(!e.message.includes(password) && !e.detail.includes(password));
+    return true;
+  });
+  const [c] = calls;
+  assert.equal(c.as, 'klant');
+  assert.deepEqual({ ...c.params, json: undefined }, { action: 'create', name: 'vensa', user: 'vensa', passwd: password, passwd2: password, json: undefined });
 });

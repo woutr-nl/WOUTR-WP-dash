@@ -6,14 +6,15 @@ const CONTROL = /[\x00-\x1f\x7f]/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 const SSH_TARGET = /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$/;
-const DA_USER = /^[a-z][a-z0-9_]{0,31}$/;
+export const DA_USER = /^[a-z][a-z0-9_]{0,31}$/;
+const DOMAIN = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 const DA_USER_MSG = 'Geen geldige DirectAdmin-gebruikersnaam (kleine letters en cijfers, begint met een letter).';
 
 const TEXT_FIELDS = [
   'client_slug', 'theme_type', 'ssh_target', 'wp_path', 'site_url', 'site_title',
   'admin_email', 'admin_user', 'db_name', 'db_user', 'db_host',
   'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name',
-  'da_username',
+  'da_username', 'da_domain',
 ];
 const SMTP_FIELDS = ['smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name'];
 
@@ -53,6 +54,13 @@ export function validateSite(input, { hasSmtpPass = false } = {}) {
 
   if (values.da_username && !errors.da_username && !DA_USER.test(values.da_username)) err('da_username', DA_USER_MSG);
   values.da_username ||= null;
+
+  // Only meaningful with an account: without one it is dropped, errors included.
+  if (!values.da_username) delete errors.da_domain;
+  values.da_domain = values.da_username ? values.da_domain.toLowerCase() : '';
+  if (values.da_domain && !errors.da_domain && !(DOMAIN.test(values.da_domain) && values.da_domain.includes('.')))
+    err('da_domain', 'Geen geldige domeinnaam.');
+  values.da_domain ||= null;
 
   need('site_title');
   need('admin_email');
