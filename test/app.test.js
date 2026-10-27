@@ -395,3 +395,14 @@ test('without a reseller connection the hosting fields stay free text', async ()
     await db.query('INSERT INTO directadmin (url, username, password_enc) VALUES ($1, $2, $3)', [daRow.url, daRow.username, daRow.password_enc]);
   }
 });
+
+test('the edit form keeps a stored slug or account that is not in the lists, marked as not found', async () => {
+  await post('/sites', siteForm());
+  const s = await onlySite();
+  await db.query('UPDATE sites SET client_slug = $2, theme_type = $3, da_username = $4 WHERE id = $1', [s.id, 'verdwenen', 'bricks', 'weg']);
+  const html = await (await get(`/sites/${s.id}/edit`)).text();
+  assert.match(html, /<option value="verdwenen" data-theme="bricks" selected>verdwenen \(niet gevonden onder clients\/\)<\/option>/);
+  assert.match(html, /<option value="weg" selected>weg \(niet gevonden onder de reseller\)<\/option>/);
+  // Listed values get no marker.
+  assert.doesNotMatch(html, /klant \(niet gevonden/);
+});

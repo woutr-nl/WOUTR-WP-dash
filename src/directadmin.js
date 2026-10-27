@@ -89,8 +89,10 @@ export async function createDatabase(conn, user, { suffix, password }) {
 }
 
 // First suffix (slug-based, then 2…9) whose `<user>_<suffix>` is not taken; null when all are.
+export const dbSuffixBase = (clientSlug) => String(clientSlug ?? '').replace(/[^a-z0-9]/g, '').slice(0, 12) || 'wp';
+
 export function freeDbSuffix(existingNames, user, clientSlug) {
-  const base = String(clientSlug ?? '').replace(/[^a-z0-9]/g, '').slice(0, 12) || 'wp';
+  const base = dbSuffixBase(clientSlug);
   for (const suffix of [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((i) => `${base}${i}`)]) {
     if (!existingNames.includes(`${user}_${suffix}`)) return suffix;
   }

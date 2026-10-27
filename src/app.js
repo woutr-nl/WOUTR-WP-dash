@@ -12,7 +12,7 @@ import { getKeyInfo, rotateKey, ROTATE_BUSY } from './sshkey.js';
 import { createLimiter } from './limiter.js';
 import {
   ensureKeyInstalled, testConnection, messageFor, listUsers, listDomains, listDatabases, createDatabase,
-  freeDbSuffix, generateDbPassword, DA_MESSAGE,
+  freeDbSuffix, dbSuffixBase, generateDbPassword, DA_MESSAGE,
 } from './directadmin.js';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -293,7 +293,7 @@ export function createApp() {
   async function createSiteDatabase(conn, id, user, clientSlug) {
     try {
       const suffix = freeDbSuffix(await listDatabases(conn, user), user, clientSlug);
-      if (!suffix) return `Geen vrije databasenaam gevonden voor ${user}_${freeDbSuffix([], user, clientSlug)}.`;
+      if (!suffix) return `Geen vrije databasenaam gevonden voor ${user}_${dbSuffixBase(clientSlug)}.`;
       const password = generateDbPassword();
       const created = await createDatabase(conn, user, { suffix, password });
       await pool.query(`UPDATE sites SET db_name = $2, db_user = $3, db_host = 'localhost', db_pass_enc = $4,
