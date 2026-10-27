@@ -148,14 +148,16 @@ export async function ensureKeyInstalled(conn, { user, publicKey, retiredKeys = 
     }
 
     const old = new Set(retiredKeys.map(keyBlob).filter((b) => b && b !== blob));
-    let removedOld = false;
-    for (const e of entries.filter((x) => old.has(x.blob))) {
-      if (!e.fingerprint) return { ok: false, error: 'Vorige dashboardsleutel gevonden, maar DirectAdmin gaf geen vingerafdruk om hem te verwijderen.' };
+    const stale = entries.filter((x) => old.has(x.blob));
+    if (stale.some((e) => !e.fingerprint)) return { ok: false, error: 'Vorige dashboardsleutel gevonden, maar DirectAdmin gaf geen vingerafdruk om hem te verwijderen.' };
+    // One delete per fingerprint: the same key listed twice shares it, and a second delete may be refused.
+    const fingerprints = new Set(stale.map((e) => e.fingerprint));
+    for (const fingerprint of fingerprints) {
       await daRequest(conn, 'CMD_SSH_KEYS', {
-        method: 'POST', loginAs: user, params: { action: 'delete', type: 'authorized_keys', select0: e.fingerprint },
+        method: 'POST', loginAs: user, params: { action: 'delete', type: 'authorized_keys', select0: fingerprint },
       });
-      removedOld = true;
     }
+    const removedOld = fingerprints.size > 0;
     return { ok: true, removedOld };
   } catch (e) {
     return { ok: false, error: messageFor(e, deniedCode) };

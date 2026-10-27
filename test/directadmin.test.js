@@ -154,6 +154,22 @@ test('rotation: removes only the previous dashboard key, keeps foreign keys', as
   assert.deepEqual(left.sort(), [keyBlob(FOREIGN), keyBlob(CUR)].sort());
 });
 
+test('rotation: the same old key listed twice is deleted once', async () => {
+  // The fake keys entries by fingerprint, so serve this listing directly: two lines, one fingerprint.
+  const listing = [{ fingerprint: 'SHA256:old', key: OLD }, { fingerprint: 'SHA256:old', key: OLD }];
+  const orig = globalThis.fetch;
+  globalThis.fetch = (url, opts) => (String(url).includes('CMD_SSH_KEYS') && (opts?.method ?? 'GET') === 'GET'
+    ? Promise.resolve(new Response(JSON.stringify({ authorized_keys: listing }), { headers: { 'content-type': 'application/json' } }))
+    : orig(url, opts));
+  try {
+    const r = await ensureKeyInstalled(conn, { user: 'klant', publicKey: CUR, retiredKeys: [OLD] });
+    assert.deepEqual(r, { ok: true, removedOld: true });
+    assert.equal(posts('delete').length, 1);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
 test('keyBlob', () => {
   assert.equal(keyBlob(CUR), CUR.split(' ')[1]);
   assert.equal(keyBlob('from="1.2.3.4" ' + FOREIGN), FOREIGN.split(' ')[1]);
