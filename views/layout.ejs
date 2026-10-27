@@ -63,6 +63,32 @@
         btn.textContent = label;
       });
     });
+    // WordPress login: the one-time URL only goes to window.open, never into the DOM or console.
+    document.querySelectorAll('button[data-wp-login]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const out = document.getElementById(btn.dataset.target);
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Bezig…';
+        out.hidden = true;
+        const res = await fetch(btn.dataset.wpLogin, { method: 'POST' }).catch(() => null);
+        const data = res ? await res.json().catch(() => ({})) : {};
+        let error = null;
+        if (data.ok && /^https:\/\//.test(data.login_url)) {
+          // No 'noopener' feature: it makes window.open return null, hiding a blocked pop-up. Cut opener by hand.
+          const w = window.open(data.login_url, '_blank');
+          if (w) w.opener = null;
+          else error = 'De pop-up is geblokkeerd; sta pop-ups toe voor dit dashboard.';
+        } else error = data.message ?? data.error ?? 'Inloglink aanmaken mislukt.';
+        if (error) {
+          out.textContent = error;
+          out.className = 'error';
+          out.hidden = false;
+        }
+        btn.disabled = false;
+        btn.textContent = label;
+      });
+    });
   </script>
 </body>
 </html>
