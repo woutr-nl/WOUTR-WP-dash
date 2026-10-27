@@ -18,7 +18,7 @@ Object.assign(process.env, {
 });
 const { default: config } = await import('../src/config.js');
 const { pool, initDb } = await import('../src/db.js');
-const { encrypt } = await import('../src/crypto.js');
+const { encrypt, decrypt } = await import('../src/crypto.js');
 const { initSshKey, getKeyInfo } = await import('../src/sshkey.js');
 const { keyBlob } = await import('../src/directadmin.js');
 const { createApp } = await import('../src/app.js');
@@ -87,7 +87,7 @@ function post(path, form = {}) {
 
 let n = 0;
 const siteForm = (extra = {}) => ({
-  client_slug: 'acme', theme_type: 'block', ssh_target: 'deploy@127.0.0.1', wp_path: '/var/www',
+  client_slug: 'acme', theme_type: 'block', ssh_target: 'deploy@255.255.255.255', wp_path: '/var/www',
   site_url: `https://acme${++n}.nl`, site_title: 'Acme', admin_email: 'a@acme.nl', ...extra,
 });
 const sites = async () => (await db.query('SELECT id, site_url, da_username, da_key_state FROM sites ORDER BY id')).rows;
@@ -99,7 +99,8 @@ test('site save with da_username installs the key and records da_key_state; clea
   assert.equal(res.status, 302);
   const [site] = await sites();
   assert.equal(site.da_key_state.status, 'installed');
-  assert.equal(typeof site.da_key_state.ssh_test.outcome, 'string');
+  // Limited broadcast: the kernel refuses the connect, so no real sshd is ever reached.
+  assert.equal(site.da_key_state.ssh_test.outcome, 'unreachable');
   assert.deepEqual(blobs('klant'), [await activeBlob()]);
 
   const edit = await post(`/sites/${site.id}`, siteForm({ site_url: site.site_url, da_username: '' }));
@@ -165,4 +166,30 @@ test('POST /ssh-key/rotate installs the new key once per account and records eve
     assert.equal(s.da_key_state.removed_old, true);
   }
   assert.equal(rows.find((r) => !r.da_username).da_key_state, null);
+});
+
+test('POST /instellingen only keeps the stored secret for the same panel URL and username', async () => {
+  const daRow = async () => (await db.query('SELECT url, username, password_enc FROM directadmin')).rows[0];
+  const orig = await daRow();
+  try {
+    await db.query("UPDATE directadmin SET url = 'https://da.voorbeeld.nl:2222'");
+    const stored = await daRow();
+
+    for (const form of [{ url: 'https://aanvaller.nl', username: 'res' }, { url: stored.url, username: 'ander' }]) {
+      const res = await post('/instellingen', { ...form, password: '' });
+      assert.equal(res.status, 422);
+      assert.match(await res.text(), /opnieuw in als je de panel-URL of gebruikersnaam wijzigt/);
+      assert.deepEqual(await daRow(), stored);
+    }
+
+    assert.equal((await post('/instellingen', { url: stored.url, username: 'res', password: '' })).status, 302);
+    assert.equal((await daRow()).password_enc, stored.password_enc);
+
+    assert.equal((await post('/instellingen', { url: 'https://nieuw.nl', username: 'res', password: 'n13uw' })).status, 302);
+    const changed = await daRow();
+    assert.equal(changed.url, 'https://nieuw.nl');
+    assert.equal(decrypt(changed.password_enc, config.encryptionKey), 'n13uw');
+  } finally {
+    await db.query('UPDATE directadmin SET url = $1, username = $2, password_enc = $3', [orig.url, orig.username, orig.password_enc]);
+  }
 });
