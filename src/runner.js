@@ -11,7 +11,7 @@ import { getActivePrivateKey } from './sshkey.js';
 import { buildArgs, parseResult, makeScrubber, makeLineBuffer, statusFromExit, compareVersions, classifySshTest } from './runs.js';
 
 const REPO = 'woutr-nl/WOUTR-WP';
-const DATA = '/data';
+const DATA = process.env.DATA_DIR || '/data';
 const CHECKOUT = `${DATA}/woutr-wp`;
 const HOME = homedir();
 const ASKPASS = `${HOME}/.git-askpass`;
@@ -69,7 +69,7 @@ async function refreshCheckout(needLfs, out) {
   if (!skip) {
     if (!existsSync(`${CHECKOUT}/.git`)) {
       out(`WOUTR-WP ophalen (${REPO}, main)…\n`);
-      if (await git(['clone', '--depth', '1', '--branch', 'main', `https://github.com/${REPO}.git`, CHECKOUT], DATA) !== 0) return false;
+      if (await git(['clone', '--depth', '1', '--branch', 'main', process.env.WOUTR_WP_GIT_URL || `https://github.com/${REPO}.git`, CHECKOUT], DATA) !== 0) return false;
     } else {
       out('WOUTR-WP bijwerken naar de huidige main…\n');
       if (await git(['fetch', '--depth', '1', 'origin', 'main']) !== 0) return false;
@@ -203,6 +203,36 @@ export async function testSshConnection(sshTarget) {
   const scrub = makeScrubber([getActivePrivateKey(), config.sshPrivateKey]);
   const detail = scrub(stderr.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '');
   return { outcome: classifySshTest(code, stderr), detail };
+}
+
+// Runs tools/login.sh for a one-time wp-admin login URL: no run row, no run lock, nothing stored.
+// The URL is a credential: stdout is never logged; it only lives in the return value.
+export async function createWpLoginUrl(site) {
+  const lines = [];
+  const stderr = makeLineBuffer((l) => lines.push(l));
+  const lock = checkoutLock.then(async () => {
+    if (!await refreshCheckout(false, (c) => stderr.push(c))) return false;
+    scriptsRunning++; // inside the lock, as in execute()
+    return true;
+  });
+  checkoutLock = lock.catch(() => {});
+  if (!await lock) return { ok: false, message: 'WOUTR-WP ophalen mislukt; probeer het later opnieuw.' };
+  let code;
+  let stdout = '';
+  try {
+    code = await exec('bash', ['tools/login.sh', '--ssh', site.ssh_target, '--path', site.wp_path, '--admin-user', site.admin_user], {
+      cwd: CHECKOUT, env: baseEnv(), signal: AbortSignal.timeout(60_000),
+      onStdout: (c) => { stdout += c; }, onStderr: (c) => stderr.push(c),
+    });
+  } finally {
+    scriptsRunning--;
+  }
+  stderr.end();
+  const { result } = parseResult(stdout);
+  if (code === 0 && result.login_url) return { ok: true, loginUrl: result.login_url };
+  const scrub = makeScrubber([getActivePrivateKey(), config.sshPrivateKey]);
+  const last = scrub(lines.map((l) => l.trim()).filter(Boolean).pop() ?? '');
+  return { ok: false, message: result.error || last || 'Inloglink aanmaken mislukt.' };
 }
 
 // Available versions for a slug's child theme and for the woutr parent theme, newest first.

@@ -19,6 +19,10 @@
     <button type="button" class="secondary" data-reveal="/sites/<%= site.id %>/reveal/admin_pass" data-target="admin_pass_shown">Toon</button>
     <input id="admin_pass_shown" readonly hidden aria-label="Beheerderswachtwoord (getoond)">
   </div>
+  <div class="secret-actions">
+    <button type="button" class="secondary" data-wp-login="/sites/<%= site.id %>/wp-login" data-target="wp_login_result">Inloggen op WordPress</button>
+    <span id="wp_login_result" role="status" hidden></span>
+  </div>
 <% } %>
 
 <h2>Geschiedenis</h2>

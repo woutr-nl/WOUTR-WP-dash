@@ -7,7 +7,7 @@ import { pool } from './db.js';
 import { encrypt, decrypt } from './crypto.js';
 import { validateSite, validateDaConnection, DA_USER } from './validate.js';
 import { ACTIONS, buildEnvNames, isRollback } from './runs.js';
-import { startRun, isBusy, anyBusy, listReleases, listClients, testSshConnection } from './runner.js';
+import { startRun, isBusy, anyBusy, listReleases, listClients, testSshConnection, createWpLoginUrl } from './runner.js';
 import { getKeyInfo, rotateKey, ROTATE_BUSY } from './sshkey.js';
 import { createLimiter } from './limiter.js';
 import {
@@ -394,6 +394,15 @@ export function createApp() {
     if (!site) return res.status(404).json({ error: 'Niet gevonden.' });
     const { outcome, message } = await sshTest(site.ssh_target);
     res.json({ ok: outcome === 'ok', outcome, message });
+  });
+
+  // One-time wp-admin login link; like the SSH test not gated on the run lock and never recorded.
+  app.post('/sites/:id/wp-login', async (req, res) => {
+    const site = await loadSite(req.params.id);
+    if (!site) return res.status(404).json({ error: 'Niet gevonden.' });
+    if (!site.has_admin_pass) return res.status(409).json({ ok: false, message: 'Deze site is nog niet gedeployed.' });
+    const { ok, loginUrl, message } = await createWpLoginUrl(site);
+    res.json(ok ? { ok, login_url: loginUrl } : { ok, message });
   });
 
   // ---- DirectAdmin reseller connection ----
