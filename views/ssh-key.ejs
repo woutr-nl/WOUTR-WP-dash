@@ -17,6 +17,9 @@
 <% } %>
 
 <h2>Toevoegen aan een hostingaccount</h2>
+<% if (daConfigured) { %>
+  <p>Er is een resellerkoppeling ingesteld: het dashboard zet de sleutel zelf op elke site met een <em>Hosting-account</em> (bij opslaan van de site en na een nieuwe sleutel). Voor sites zonder hosting-account:</p>
+<% } %>
 <ol>
   <li>Kopieer de publieke sleutel hierboven (één regel, begint met <code><%= key.key_type || 'ssh-ed25519' %></code>).</li>
   <li>In DirectAdmin: open <em>SSH Keys</em> van het account, kies <em>Paste Key</em>, plak de regel en sla op.</li>
@@ -25,10 +28,36 @@
 </ol>
 
 <h2>Nieuwe sleutel genereren</h2>
-<p>De huidige sleutel werkt daarna direct niet meer voor het dashboard: elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd.</p>
-<form method="post" action="/ssh-key/rotate" data-confirm="Nieuwe SSH-sleutel genereren? De huidige sleutel werkt dan direct niet meer voor het dashboard, en elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd.">
+<% if (daConfigured) { %>
+  <p>De huidige sleutel werkt daarna direct niet meer voor het dashboard. Het dashboard zet de nieuwe sleutel automatisch op elke site met een hosting-account en verwijdert daar de vorige dashboardsleutel; andere sleutels blijven staan. Sites zonder hosting-account mislukken tot je de nieuwe sleutel handmatig toevoegt.</p>
+<% } else { %>
+  <p>De huidige sleutel werkt daarna direct niet meer voor het dashboard: elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd.</p>
+<% } %>
+<form method="post" action="/ssh-key/rotate" data-confirm="<%= daConfigured
+  ? 'Nieuwe SSH-sleutel genereren? Het dashboard zet de nieuwe sleutel automatisch op de sites met een hosting-account en verwijdert daar de vorige; sites zonder hosting-account mislukken tot je de sleutel handmatig toevoegt.'
+  : 'Nieuwe SSH-sleutel genereren? De huidige sleutel werkt dan direct niet meer voor het dashboard, en elke site mislukt tot de nieuwe publieke sleutel aan het hostingaccount is toegevoegd.' %>">
   <button type="submit" class="danger">Nieuwe sleutel genereren</button>
 </form>
+
+<h2>Installatie per site</h2>
+<% if (!daConfigured) { %>
+  <p class="empty">Geen resellerkoppeling ingesteld — sleutels installeer je handmatig (zie <a href="/instellingen">Instellingen</a>).</p>
+<% } else if (!daSites.length) { %>
+  <p class="empty">Nog geen sites met een hosting-account.</p>
+<% } else { %>
+  <table class="sites">
+    <thead><tr><th>Site</th><th>Hosting-account</th><th>Status</th></tr></thead>
+    <tbody>
+    <% for (const s of daSites) { %>
+      <tr>
+        <td data-label="Site"><a href="/sites/<%= s.id %>/edit"><%= s.site_title %></a></td>
+        <td data-label="Hosting-account"><code><%= s.da_username %></code></td>
+        <td data-label="Status"><%- include('key-status', { s, daConfigured }) %></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+<% } %>
 
 <% if (key.retired.length) { %>
   <h2>Vorige sleutels</h2>

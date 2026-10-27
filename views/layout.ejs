@@ -12,6 +12,7 @@
     <% if (loggedIn) { %>
       <nav>
         <a href="/ssh-key">SSH-sleutel</a>
+        <a href="/instellingen">Instellingen</a>
         <form method="post" action="/logout"><button type="submit" class="link">Uitloggen</button></form>
       </nav>
     <% } %>
@@ -42,7 +43,7 @@
         setTimeout(() => { btn.textContent = label; }, 1500);
       });
     });
-    // SSH test: the message is shown as text; the key-page link is static markup.
+    // Test/action buttons: the message is shown as text; the optional key-page link is static markup.
     document.querySelectorAll('button[data-test]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const out = document.getElementById(btn.dataset.target);
@@ -50,13 +51,14 @@
         const label = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Bezig…';
-        out.hidden = link.hidden = true;
+        out.hidden = true;
+        if (link) link.hidden = true;
         const res = await fetch(btn.dataset.test, { method: 'POST' }).catch(() => null);
         const data = res ? await res.json().catch(() => ({})) : {};
         out.textContent = data.message ?? data.error ?? 'Test kon niet worden uitgevoerd.';
         out.className = data.ok ? 'badge success' : 'error';
         out.hidden = false;
-        link.hidden = data.outcome !== 'denied';
+        if (link) link.hidden = data.outcome !== 'denied';
         btn.disabled = false;
         btn.textContent = label;
       });

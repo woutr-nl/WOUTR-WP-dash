@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSite } from '../src/validate.js';
+import { validateSite, validateDaConnection } from '../src/validate.js';
 
 const base = {
   client_slug: 'acme',
@@ -97,4 +97,30 @@ test('bricks with a stored SMTP password is refused unless it is cleared', () =>
   assert.deepEqual(cleared.errors, {});
   assert.equal(cleared.values.smtp_pass, null);
   assert.deepEqual(validateSite(bricks).errors, {});
+});
+
+test('da_username: optional, DirectAdmin username rules', () => {
+  assert.equal(validateSite(base).values.da_username, null);
+  assert.equal(validateSite({ ...base, da_username: ' klant_1 ' }).values.da_username, 'klant_1');
+  for (const bad of ['Klant', '1klant', 'kl-ant', 'a'.repeat(33)])
+    assert.match(validateSite({ ...base, da_username: bad }).errors.da_username, /DirectAdmin-gebruikersnaam/);
+  assert.equal(validateSite({ ...base, da_username: '-klant' }).errors.da_username, "Mag niet met '-' beginnen.");
+  assert.match(validateSite({ ...base, da_username: 'kl\nant' }).errors.da_username, /ongeldige tekens/);
+});
+
+test('validateDaConnection: https only, normalized, password required on create', () => {
+  const ok = { url: ' https://da.example.nl:2222/ ', username: 'reseller', password: ' p w ' };
+  const { values, errors } = validateDaConnection(ok);
+  assert.deepEqual(errors, {});
+  assert.deepEqual(values, { url: 'https://da.example.nl:2222', username: 'reseller', password: ' p w ' });
+  for (const url of ['http://da.example.nl:2222', 'garbage', 'https://u:p@da.example.nl', '', '-https://x'])
+    assert.ok(validateDaConnection({ ...ok, url }).errors.url, url);
+  assert.ok(validateDaConnection({ ...ok, username: 'Res' }).errors.username);
+  assert.ok(validateDaConnection({ ...ok, username: '-res' }).errors.username);
+  assert.ok(validateDaConnection({ ...ok, username: '' }).errors.username);
+  assert.equal(validateDaConnection({ ...ok, password: '' }).errors.password, 'Verplicht veld.');
+  const keep = validateDaConnection({ ...ok, password: '' }, { hasPassword: true });
+  assert.deepEqual(keep.errors, {});
+  assert.equal(keep.values.password, undefined);
+  assert.ok(validateDaConnection({ ...ok, password: 'a\nb' }).errors.password);
 });

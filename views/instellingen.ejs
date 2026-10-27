@@ -1,0 +1,41 @@
+<%
+  const e = (f) => errors[f] ? `<span class="error">${errors[f].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>` : '';
+%>
+<h1>Instellingen</h1>
+<% if (saved) { %><p class="notice">De resellerkoppeling is opgeslagen.</p><% } %>
+<% if (Object.keys(errors).length) { %><p class="error">Controleer de gemarkeerde velden.</p><% } %>
+
+<h2>DirectAdmin-resellerkoppeling</h2>
+<p>Met deze koppeling zet het dashboard zijn publieke SSH-sleutel zelf op de hostingaccounts (DirectAdmin-gebruikers onder deze reseller): bij het opslaan van een site met een hosting-account en na elke nieuwe sleutel.</p>
+<% if (!conn) { %>
+  <p class="empty">Geen resellerkoppeling ingesteld. Het dashboard werkt dan zoals voorheen: de publieke sleutel voeg je handmatig toe (zie SSH-sleutel).</p>
+<% } %>
+<form method="post" action="/instellingen" class="site-form narrow" novalidate>
+  <fieldset>
+    <legend>Reseller</legend>
+    <label>Panel-URL
+      <input name="url" type="url" value="<%= conn?.url ?? '' %>" placeholder="https://server.voorbeeld.nl:2222" required><%- e('url') %>
+    </label>
+    <label>Reseller-gebruikersnaam
+      <input name="username" value="<%= conn?.username ?? '' %>" autocomplete="off" required><%- e('username') %>
+    </label>
+    <label>Wachtwoord of login key
+      <input name="password" type="password" autocomplete="off" <%- conn?.has_password ? 'placeholder="••• opgeslagen — vul in om te vervangen"' : 'required' %>><%- e('password') %>
+    </label>
+    <p><small>Gebruik bij voorkeur een DirectAdmin <strong>login key</strong> met alleen de benodigde rechten (<code>CMD_API_SHOW_USERS</code>, <code>CMD_API_SHOW_USER_CONFIG</code>, <code>CMD_API_MODIFY_USER</code>, <code>CMD_SSH_KEYS</code>, met <em>login-as</em> toegestaan) in plaats van het resellerwachtwoord. Het wordt versleuteld opgeslagen en daarna nooit meer getoond.</small></p>
+  </fieldset>
+  <div class="bar">
+    <button type="submit">Opslaan</button>
+  </div>
+</form>
+
+<% if (conn) { %>
+  <div class="secret-actions">
+    <button type="button" class="secondary" data-test="/instellingen/test" data-target="da_test_result">Verbinding testen</button>
+    <span id="da_test_result" hidden></span>
+  </div>
+  <form method="post" action="/instellingen/delete" data-confirm="Resellerkoppeling verwijderen? Sleutels installeer je daarna weer handmatig.">
+    <button type="submit" class="danger">Koppeling verwijderen</button>
+  </form>
+<% } %>
+<p><a href="/">← Alle sites</a></p>

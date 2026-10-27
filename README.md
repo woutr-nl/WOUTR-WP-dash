@@ -37,6 +37,26 @@ De pagina **SSH-sleutel** (in de menubalk) toont de publieke sleutel (één rege
 
 **`ENCRYPTION_KEY` kwijt** betekent ook de SSH-sleutel kwijt: de app start dan niet meer met de bestaande database. Begin met een lege tabel `ssh_keys` (`docker compose exec db psql -U woutrdash -c 'DELETE FROM ssh_keys'`) zodat een nieuwe sleutel wordt gegenereerd, en zet de nieuwe publieke sleutel opnieuw op elk hostingaccount.
 
+### DirectAdmin-resellerkoppeling
+
+Optioneel. Zonder koppeling werkt alles zoals hierboven: de publieke sleutel zet je zelf op elk hostingaccount. Staan de sites als gebruikers onder een DirectAdmin-**reseller**account (DirectAdmin 1.55 of nieuwer), dan kan het dashboard dat zelf doen.
+
+**Instellen** op de pagina **Instellingen** (in de menubalk):
+
+- **Panel-URL**: het adres van het paneel, alleen `https://`, bijvoorbeeld `https://server.voorbeeld.nl:2222`.
+- **Reseller-gebruikersnaam**: de DirectAdmin-gebruikersnaam van het reselleraccount (of een admin-account).
+- **Wachtwoord of login key**: liever een DirectAdmin **login key** dan het resellerwachtwoord. Maak die in DirectAdmin onder *Login Keys* aan met alleen de opdrachten die nodig zijn: `CMD_API_SHOW_USERS`, `CMD_API_SHOW_USER_CONFIG`, `CMD_API_MODIFY_USER` en `CMD_SSH_KEYS`, met *login-as* toegestaan, en beperk hem bij voorkeur tot het IP-adres van het dashboard. Het geheim wordt versleuteld (met `ENCRYPTION_KEY`) opgeslagen en daarna nooit meer getoond, alleen vervangen; het komt niet in logs of runs.
+
+**Verbinding testen** controleert dat het inloggen lukt en dat het account gebruikers kan beheren, en meldt anders waarom niet (inloggegevens geweigerd, paneel niet bereikbaar, geen reseller-account). **Koppeling verwijderen** zet het dashboard terug op handmatige installatie.
+
+**Hosting-account per site**: vul op het siteformulier bij **Hosting-account (DirectAdmin-gebruiker)** de DirectAdmin-gebruikersnaam in van het account waarop de site staat. Leeg laten mag; die site doet dan niet mee.
+
+**Bij opslaan** van een site met hosting-account zorgt het dashboard dat dat account SSH aan heeft (alleen als het pakket of de reseller dat toestaat) en dat de huidige publieke sleutel van het dashboard in de SSH-sleutels staat, één keer, met het label `woutr-dash`. Daarna draait automatisch de SSH-verbindingstest. Mislukt de installatie, dan is de site toch opgeslagen; het overzicht toont per site *geïnstalleerd* (met tijdstip en testresultaat), *mislukt* (met de reden), *geen hosting-account* of *geen resellerkoppeling*. Met **Opnieuw installeren** probeer je het opnieuw, bijvoorbeeld na het aanpassen van het pakket. Meerdere sites op één account krijgen de sleutel maar één keer.
+
+**Bij een nieuwe sleutel** zet het dashboard de nieuwe sleutel op elk hostingaccount van een site en verwijdert het daar de vorige dashboardsleutel. Sleutels worden alleen verwijderd als ze exact gelijk zijn aan een eerdere dashboardsleutel; andere sleutels op het account blijven onaangeroerd. De pagina SSH-sleutel toont daarna onder *Installatie per site* het resultaat per site.
+
+Een site verwijderen of het hosting-account wijzigen haalt de sleutel **niet** van het oude account; verwijder hem daar zo nodig zelf (label `woutr-dash`).
+
 ## CI en images
 
 GitHub Actions (`.github/workflows/ci.yml`) bouwt en test de app; Rollout bouwt zelf niets meer, maar haalt de kant-en-klare image op.

@@ -56,6 +56,16 @@ export async function initDb() {
       created_at      timestamptz NOT NULL DEFAULT now(),
       retired_at      timestamptz
     );
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS da_username text;
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS da_key_state jsonb;
+    -- Single DirectAdmin reseller connection for the whole dashboard (one row, enforced).
+    CREATE TABLE IF NOT EXISTS directadmin (
+      id           boolean PRIMARY KEY DEFAULT true CHECK (id),
+      url          text NOT NULL,
+      username     text NOT NULL,
+      password_enc text NOT NULL,
+      updated_at   timestamptz NOT NULL DEFAULT now()
+    );
     -- A run still 'running' at boot was cut off by a restart.
     UPDATE runs SET status = 'interrupted', finished_at = now() WHERE status = 'running';
   `);
