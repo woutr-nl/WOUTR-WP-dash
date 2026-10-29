@@ -258,10 +258,21 @@ const issueLetsEncrypt = (conn, user, names) => daRequest(conn, 'CMD_API_SSL', {
   },
 });
 
-// Let's Encrypt for domain + www.domain (bare domain alone when www fails). Turns SSL on for
-// the account when needed and back off when the request then fails. Never throws.
+// Let's Encrypt for domain + www.domain (bare domain alone when DirectAdmin refused www). Turns
+// SSL on for the account when needed and back off when the request then fails. Never throws.
 export async function requestLetsEncrypt(conn, { user, domain }) {
   let originalCfg, turnedSslOn = false;
+  // Best-effort: re-send the original config without ssl (= OFF) when we turned it on.
+  const fail = async (error) => {
+    if (turnedSslOn) {
+      try {
+        await daRequest(conn, 'CMD_API_MODIFY_USER', { method: 'POST', params: { ...buildCustomizeParams(originalCfg, {}), user } });
+      } catch {
+        error += '; de SSL-instelling van het account kon niet worden teruggezet';
+      }
+    }
+    return { ok: false, error };
+  };
   try {
     originalCfg = await daRequest(conn, 'CMD_API_SHOW_USER_CONFIG', { params: { user } });
     if (originalCfg?.ssl !== 'ON') {
@@ -275,27 +286,21 @@ export async function requestLetsEncrypt(conn, { user, domain }) {
       if (cfg?.ssl !== 'ON') return { ok: false, error: DA_MESSAGE.ssl_not_allowed };
     }
   } catch (e) {
-    return { ok: false, error: messageFor(e) };
+    return fail(messageFor(e));
   }
 
   let issued = [domain, `www.${domain}`], firstError = null;
   try {
     await issueLetsEncrypt(conn, user, issued);
   } catch (e) {
+    // Only a refusal can be about www; auth/unreachable/timeout would fail the same way again.
+    if (!(e instanceof DaError) || e.code !== 'denied') return fail(classifySslFailure(e));
     firstError = e;
     issued = [domain];
     try {
       await issueLetsEncrypt(conn, user, issued);
     } catch {
-      let error = classifySslFailure(firstError);
-      if (turnedSslOn) {
-        try {
-          await daRequest(conn, 'CMD_API_MODIFY_USER', { method: 'POST', params: { ...buildCustomizeParams(originalCfg, {}), user } });
-        } catch {
-          error += '; de SSL-instelling van het account kon niet worden teruggezet';
-        }
-      }
-      return { ok: false, error };
+      return fail(classifySslFailure(firstError));
     }
   }
   let cert = null;

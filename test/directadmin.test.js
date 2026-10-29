@@ -57,7 +57,10 @@ before(async () => {
       if (cmd === 'CMD_API_SHOW_DOMAINS') return send(res, 200, { list: u.domains });
       if (cmd === 'CMD_API_DATABASES' && req.method === 'GET') return send(res, 200, { list: u.databases });
       if (cmd === 'CMD_API_DATABASES' && params.action === 'create') return send(res, 200, { error: '1', text: 'Password rejected', details: `pw ${params.passwd} too weak` });
-      if (cmd === 'CMD_API_SHOW_USER_CONFIG') return send(res, 200, u.config);
+      if (cmd === 'CMD_API_SHOW_USER_CONFIG') {
+        if (u.configReads !== undefined && u.configReads-- === 0) return send(res, 200, { error: '1', text: 'Kan niet lezen' });
+        return send(res, 200, u.config);
+      }
       if (cmd === 'CMD_API_MODIFY_USER') {
         if (u.allowSsh && params.ssh === 'ON') u.config.ssh = 'ON';
         // Absent checkbox = OFF, like DirectAdmin.
@@ -313,6 +316,7 @@ test('requestLetsEncrypt: a login key without CMD_API_SSL names the missing righ
   const r = await requestLetsEncrypt(conn, { user: 'klant', domain: 'klant.nl' });
   assert.deepEqual(r, { ok: false, error: DA_MESSAGE.ssl_no_right });
   assert.match(r.error, /CMD_API_SSL/);
+  assert.equal(sslPosts().length, 1, 'no bare-domain retry on a missing right');
 });
 
 test('requestLetsEncrypt: SSL off → turned on with the whole config, or ssl_not_allowed', async () => {
@@ -372,4 +376,30 @@ test('buildCustomizeParams: flags default to ssh=ON; { ssl } and {} round-trip',
   assert.deepEqual(buildCustomizeParams(cfg), { cgi: 'ON', ssh: 'ON', action: 'customize', user: 'klant' });
   assert.deepEqual(buildCustomizeParams(cfg, { ssl: 'ON' }), { cgi: 'ON', ssl: 'ON', action: 'customize', user: 'klant' });
   assert.deepEqual(buildCustomizeParams(cfg, {}), { cgi: 'ON', action: 'customize', user: 'klant' });
+});
+
+test('requestLetsEncrypt: an unreachable panel during the issue is not retried', async () => {
+  state.users.klant.config.ssl = 'ON';
+  const orig = globalThis.fetch;
+  let posts = 0;
+  globalThis.fetch = (url, opts) => (String(url).includes('CMD_API_SSL') && opts?.method === 'POST'
+    ? (posts++, Promise.reject(new Error('timeout')))
+    : orig(url, opts));
+  try {
+    assert.deepEqual(await requestLetsEncrypt(conn, { user: 'klant', domain: 'klant.nl' }), { ok: false, error: DA_MESSAGE.unreachable });
+    assert.equal(posts, 1);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('requestLetsEncrypt: re-reading the config fails after turning SSL on → rolled back', async () => {
+  state.users.klant.config.ssl = 'OFF';
+  const before = structuredClone(state.users.klant.config);
+  state.users.klant.configReads = 1; // the second SHOW_USER_CONFIG fails
+  const r = await requestLetsEncrypt(conn, { user: 'klant', domain: 'klant.nl' });
+  assert.equal(r.ok, false);
+  assert.equal(sslPosts().length, 0);
+  assert.equal(calls.filter((c) => c.cmd === 'CMD_API_MODIFY_USER').length, 2);
+  assert.deepEqual(state.users.klant.config, before);
 });
