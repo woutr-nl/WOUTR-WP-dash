@@ -539,3 +539,66 @@ test('run page: a live run failing check_https offers SSL and a hidden go-live-a
   assert.doesNotMatch(other, /ssl_retry_live|data-ssl=/);
   await db.query('DELETE FROM runs WHERE site_id = $1', [s.id]);
 });
+
+// Runs the layout's inline script of a rendered page against a minimal fake DOM, with fetch
+// going to the app as the logged-in admin. Enough to drive the data-ssl button handler.
+async function runPageScript(html, { confirmAnswer = true } = {}) {
+  const script = html.slice(html.indexOf('</main>')).match(/<script>([\s\S]*?)<\/script>/)[1];
+  const elements = {};
+  const el = (id) => (elements[id] ??= { id, hidden: /hidden/.test(html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? '') });
+  const buttons = [...html.matchAll(/<button [^>]*data-ssl="([^"]+)" data-target="([^"]*)" data-show-after="([^"]*)"[^>]*>([^<]*)</g)]
+    .map(([, ssl, target, showAfter, text]) => ({ dataset: { ssl, target, showAfter }, textContent: text, listeners: [],
+      addEventListener(type, fn) { this.listeners.push(fn); } }));
+  const confirms = [];
+  const sandbox = {
+    document: {
+      addEventListener() {},
+      querySelectorAll: (sel) => (sel === 'button[data-ssl]' ? buttons : []),
+      getElementById: el,
+    },
+    fetch: (path, opts = {}) => fetch(base + path, { ...opts, headers: { origin: base, cookie } }),
+    confirm: (msg) => { confirms.push(msg); return confirmAnswer; },
+    URLSearchParams, setTimeout, navigator: {}, window: {},
+  };
+  const { runInNewContext } = await import('node:vm');
+  runInNewContext(script, sandbox);
+  assert.equal(buttons.length, 1);
+  for (const fn of buttons[0].listeners) await fn();
+  // The handler awaits two fetches internally; wait until the button is reset.
+  while (buttons[0].disabled) await new Promise((r) => setTimeout(r, 10));
+  return { el, confirms, button: buttons[0] };
+}
+
+test('run page script: a successful SSL request unhides the go-live-again form; a failure keeps it hidden', async () => {
+  const s = await sslSite();
+  const live = (await db.query(
+    "INSERT INTO runs (site_id, action, status, result, exit_code) VALUES ($1, 'live', 'needs_confirmation', $2, 3) RETURNING id",
+    [s.id, { check_https: 'fail:geen certificaat' }])).rows[0].id;
+  const page = async () => (await get(`/sites/${s.id}/runs/${live}`)).text();
+
+  accounts.klant.sslFail = 'DNS problem: NXDOMAIN looking up A for klant.nl';
+  let r = await runPageScript(await page());
+  assert.equal(r.el('ssl_retry_live').hidden, true);
+  assert.equal(r.el('ssl_result').className, 'error');
+  assert.match(r.el('ssl_result').textContent, /DNS/);
+
+  delete accounts.klant.sslFail;
+  r = await runPageScript(await page());
+  assert.equal(r.el('ssl_result').className, 'badge success');
+  assert.match(r.el('ssl_result').textContent, /^Certificaat aangevraagd voor klant\.nl en www\.klant\.nl/);
+  assert.equal(r.el('ssl_retry_live').hidden, false);
+  assert.equal(r.button.textContent, 'SSL aanvragen');
+  // Nothing started by itself: still only this one run.
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM runs WHERE site_id = $1', [s.id])).rows[0].n, 1);
+
+  // Valid certificate now installed: declining the confirmation sends no issue request.
+  calls = [];
+  r = await runPageScript(await page(), { confirmAnswer: false });
+  assert.match(r.confirms[0], /^Er is al een geldig certificaat/);
+  assert.equal(issues().length, 0);
+  assert.equal(r.el('ssl_retry_live').hidden, true);
+  r = await runPageScript(await page(), { confirmAnswer: true });
+  assert.equal(issues().length, 1);
+  assert.equal(r.el('ssl_retry_live').hidden, false);
+  await db.query('DELETE FROM runs WHERE site_id = $1', [s.id]);
+});
