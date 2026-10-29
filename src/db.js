@@ -60,6 +60,8 @@ export async function initDb() {
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS da_key_state jsonb;
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS da_domain text;
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS db_create_error text;
+    -- Last Let's Encrypt request: { status, at, names?, expires_at?, www_dropped?, www_error?, error? }.
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS ssl_state jsonb;
     -- Single DirectAdmin reseller connection for the whole dashboard (one row, enforced).
     CREATE TABLE IF NOT EXISTS directadmin (
       id           boolean PRIMARY KEY DEFAULT true CHECK (id),

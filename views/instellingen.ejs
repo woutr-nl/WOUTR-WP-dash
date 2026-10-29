@@ -22,7 +22,7 @@
     <label>Wachtwoord of login key
       <input name="password" type="password" autocomplete="off" <%- conn?.has_password ? 'placeholder="••• opgeslagen — vul in om te vervangen"' : 'required' %>><%- e('password') %>
     </label>
-    <p><small>Gebruik bij voorkeur een DirectAdmin <strong>login key</strong> met alleen de benodigde rechten (<code>CMD_API_SHOW_USERS</code>, <code>CMD_API_SHOW_USER_CONFIG</code>, <code>CMD_API_MODIFY_USER</code>, <code>CMD_SSH_KEYS</code>, met <em>login-as</em> toegestaan) in plaats van het resellerwachtwoord. Het wordt versleuteld opgeslagen en daarna nooit meer getoond.</small></p>
+    <p><small>Gebruik bij voorkeur een DirectAdmin <strong>login key</strong> met alleen de benodigde rechten (<code>CMD_API_SHOW_USERS</code>, <code>CMD_API_SHOW_USER_CONFIG</code>, <code>CMD_API_MODIFY_USER</code>, <code>CMD_SSH_KEYS</code>, <code>CMD_API_SSL</code> (Let's Encrypt-certificaat aanvragen), met <em>login-as</em> toegestaan) in plaats van het resellerwachtwoord. Het wordt versleuteld opgeslagen en daarna nooit meer getoond.</small></p>
   </fieldset>
   <div class="bar">
     <button type="submit">Opslaan</button>
