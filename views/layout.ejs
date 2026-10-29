@@ -63,6 +63,36 @@
         btn.textContent = label;
       });
     });
+    // SSL request: re-issue over a valid certificate only after confirm(); data-show-after is unhidden on success.
+    document.querySelectorAll('button[data-ssl]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const out = document.getElementById(btn.dataset.target);
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Bezig…';
+        out.hidden = true;
+        const send = async (body) => {
+          const res = await fetch(btn.dataset.ssl, { method: 'POST', body }).catch(() => null);
+          return res ? res.json().catch(() => ({})) : {};
+        };
+        let data = await send();
+        if (data.needs_confirmation) {
+          if (!confirm(data.message)) {
+            btn.disabled = false;
+            btn.textContent = label;
+            return;
+          }
+          data = await send(new URLSearchParams({ confirm: '1' }));
+        }
+        out.textContent = data.message ?? data.error ?? 'SSL-aanvraag kon niet worden uitgevoerd.';
+        out.className = data.ok ? 'badge success' : 'error';
+        out.hidden = false;
+        const after = btn.dataset.showAfter && document.getElementById(btn.dataset.showAfter);
+        if (data.ok && after) after.hidden = false;
+        btn.disabled = false;
+        btn.textContent = label;
+      });
+    });
     // WordPress login: the one-time URL only goes to window.open, never into the DOM or console.
     document.querySelectorAll('button[data-wp-login]').forEach((btn) => {
       btn.addEventListener('click', async () => {

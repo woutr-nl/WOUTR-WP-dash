@@ -6,7 +6,7 @@
   <p class="empty">Nog geen sites. Voeg de eerste site toe.</p>
 <% } else { %>
   <table class="sites">
-    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th>SSH-sleutel</th><th></th></tr></thead>
+    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th>SSH-sleutel</th><th>SSL</th><th></th></tr></thead>
     <tbody>
     <% for (const s of sites) { %>
       <tr>
@@ -25,6 +25,15 @@
           <% if (s.da_username) { %>
             <br><button type="button" class="secondary" data-test="/sites/<%= s.id %>/install-key" data-target="install-<%= s.id %>">Opnieuw installeren</button>
             <span id="install-<%= s.id %>" hidden></span>
+          <% } %>
+        </td>
+        <td data-label="SSL">
+          <% const ssl = s.ssl_state; %>
+          <% if (!ssl) { %><span class="empty">—</span>
+          <% } else if (ssl.status === 'success') { %>
+            <span class="badge success"><%= ssl.expires_at ? `geldig tot ${fmtDate(ssl.expires_at)}` : `aangevraagd ${fmtDate(ssl.at)}` %></span>
+          <% } else { %>
+            <span class="badge failed">mislukt <%= fmtDate(ssl.at) %></span><br><small class="error"><%= ssl.error %></small>
           <% } %>
         </td>
         <td class="actions">

@@ -46,6 +46,18 @@
   </div>
 <% } %>
 
+<% if (run.action === 'live' && String(res.check_https ?? '').startsWith('fail')) { %>
+  <div class="confirm">
+    <p>HTTPS werkt nog niet. Vraag hier een Let's Encrypt-certificaat aan en start daarna opnieuw "Live gaan".</p>
+    <div class="secret-actions">
+      <%- include('ssl-status', { site, daConfigured, showAfter: 'ssl_retry_live' }) %>
+    </div>
+    <form id="ssl_retry_live" method="post" action="/sites/<%= site.id %>/run/live" hidden>
+      <button type="submit">Opnieuw live gaan</button>
+    </form>
+  </div>
+<% } %>
+
 <% if (checks.length) { %>
   <h2>Controles</h2>
   <ul class="checks">

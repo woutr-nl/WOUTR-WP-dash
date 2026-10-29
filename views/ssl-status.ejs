@@ -1,0 +1,16 @@
+<% const ssl = site.ssl_state; %>
+<% if (!ssl) { %><span class="empty">SSL: nog niet aangevraagd via het dashboard.</span>
+<% } else if (ssl.status === 'success') { %>
+  <span>SSL: aangevraagd <%= fmtDate(ssl.at) %> voor <%= (ssl.names ?? []).join(' en ') %><% if (ssl.expires_at) { %>, geldig tot <%= fmtDate(ssl.expires_at) %><% } %>.</span>
+  <% if (ssl.www_dropped) { %><small class="error">Alleen <%= site.da_domain %>; www.<%= site.da_domain %> kon niet worden gevalideerd (<%= ssl.www_error %>).</small><% } %>
+<% } else { %>
+  <span class="error">SSL-aanvraag mislukt (<%= fmtDate(ssl.at) %>): <%= ssl.error %></span>
+<% } %>
+<% const sslReason = !site.da_username ? 'Geen hosting-account bij deze site.' : !site.da_domain ? 'Geen domein gekozen bij deze site.'
+  : !daConfigured ? 'Geen resellerkoppeling ingesteld (zie Instellingen).' : null; %>
+<% if (!sslReason) { %>
+  <button type="button" class="secondary" data-ssl="/sites/<%= site.id %>/ssl" data-target="ssl_result" data-show-after="<%= typeof showAfter === 'string' ? showAfter : '' %>">SSL aanvragen</button>
+  <span id="ssl_result" role="status" hidden></span>
+<% } else { %>
+  <button type="button" class="secondary" disabled>SSL aanvragen</button> <span class="empty"><%= sslReason %></span>
+<% } %>

@@ -22,6 +22,7 @@ const { encrypt, decrypt } = await import('../src/crypto.js');
 const { initSshKey, getKeyInfo } = await import('../src/sshkey.js');
 const { keyBlob } = await import('../src/directadmin.js');
 const { createApp } = await import('../src/app.js');
+const { VALID_CERT, EXPIRED_CERT } = await import('./certs.js');
 
 const db = new PGlite();
 // Parameterless calls may hold several statements (initDb); PGlite runs those with exec.
@@ -59,7 +60,19 @@ const da = createServer((req, res) => {
     const send = (obj) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
     const u = accounts[as ?? params.user];
     if (cmd === 'CMD_API_SHOW_USERS') return send({ list: Object.keys(accounts) });
-    if (cmd === 'CMD_API_SHOW_USER_CONFIG') return send({ username: params.user, ssh: 'ON' });
+    if (cmd === 'CMD_API_SHOW_USER_CONFIG') return send({ username: params.user, ssh: 'ON', ssl: u?.ssl ?? 'ON' });
+    if (cmd === 'CMD_API_MODIFY_USER') {
+      u.ssl = params.ssl === 'ON' ? 'ON' : 'OFF';
+      return send({ error: '0' });
+    }
+    if (cmd === 'CMD_API_SSL' && req.method === 'GET') return send({ certificate: u.cert ?? '' });
+    if (cmd === 'CMD_API_SSL' && params.request === 'letsencrypt') {
+      return Promise.resolve(u.sslGate).then(() => {
+        if (u.sslFail) return send({ error: '1', text: 'Failed', details: u.sslFail });
+        u.cert = VALID_CERT;
+        send({ error: '0' });
+      });
+    }
     if (cmd === 'CMD_SSH_KEYS' && req.method === 'GET') return send({ authorized_keys: u.keys });
     if (u?.fail) { res.writeHead(401); return res.end(); }
     if (cmd === 'CMD_API_SHOW_DOMAINS') return send({ list: u.domains });
@@ -405,4 +418,187 @@ test('the edit form keeps a stored slug or account that is not in the lists, mar
   assert.match(html, /<option value="weg" selected>weg \(niet gevonden onder de reseller\)<\/option>/);
   // Listed values get no marker.
   assert.doesNotMatch(html, /klant \(niet gevonden/);
+});
+
+// ---- SSL requests ----
+
+const sslSite = async (extra = {}) => {
+  await post('/sites', daForm());
+  const s = await onlySite();
+  await db.query('UPDATE sites SET da_domain = $2 WHERE id = $1', [s.id, 'klant.nl']);
+  for (const [k, v] of Object.entries(extra)) await db.query(`UPDATE sites SET ${k} = $2 WHERE id = $1`, [s.id, v]);
+  calls = [];
+  return s;
+};
+const issues = () => calls.filter((c) => c.cmd === 'CMD_API_SSL' && c.method === 'POST');
+const ssl = async (id, form) => (await post(`/sites/${id}/ssl`, form)).json();
+
+test('POST /sites/:id/ssl gets domain + www and stores the result without secrets', async () => {
+  const s = await sslSite();
+  const body = await ssl(s.id);
+  assert.equal(body.ok, true);
+  assert.match(body.message, /^Certificaat aangevraagd voor klant\.nl en www\.klant\.nl, geldig tot \d/);
+  const [issue] = issues();
+  assert.deepEqual([issue.as, issue.params.le_select0, issue.params.le_select1], ['klant', 'klant.nl', 'www.klant.nl']);
+  const st = (await row(s.id)).ssl_state;
+  assert.equal(st.status, 'success');
+  assert.deepEqual(st.names, ['klant.nl', 'www.klant.nl']);
+  assert.equal(st.expires_at, new Date('Oct  5 22:11:43 2126 GMT').toISOString());
+  assert.ok(!JSON.stringify([body, st]).includes('s3cr3t'));
+
+  const page = await (await get(`/sites/${s.id}/runs`)).text();
+  assert.match(page, /SSL: aangevraagd .* voor klant\.nl en www\.klant\.nl, geldig tot/);
+  assert.match(page, /data-ssl="\/sites\/\d+\/ssl"/);
+  assert.match(await (await get('/')).text(), /badge success">geldig tot/);
+  assert.ok(!page.includes('s3cr3t'));
+});
+
+test('SSL: no hosting account / no reseller connection → reason, no panel call', async () => {
+  await post('/sites', siteForm());
+  const plain = await onlySite();
+  calls = [];
+  assert.deepEqual(await ssl(plain.id), { ok: false, message: 'Geen hosting-account (met domein) bij deze site.' });
+  assert.equal(calls.length, 0);
+  const page = await (await get(`/sites/${plain.id}/runs`)).text();
+  assert.match(page, /<button type="button" class="secondary" disabled>SSL aanvragen<\/button> <span class="empty">Geen hosting-account bij deze site\./);
+  assert.equal((await post('/sites/999999/ssl')).status, 404);
+
+  await db.query('DELETE FROM sites');
+  const s = await sslSite();
+  const daRow = (await db.query('SELECT * FROM directadmin')).rows[0];
+  await db.query('DELETE FROM directadmin');
+  try {
+    assert.deepEqual(await ssl(s.id), { ok: false, message: 'Geen resellerkoppeling ingesteld (zie Instellingen).' });
+    assert.match(await (await get(`/sites/${s.id}/runs`)).text(), /disabled>SSL aanvragen<\/button> <span class="empty">Geen resellerkoppeling ingesteld/);
+    assert.equal(calls.length, 0);
+  } finally {
+    await db.query('INSERT INTO directadmin (url, username, password_enc) VALUES ($1, $2, $3)', [daRow.url, daRow.username, daRow.password_enc]);
+  }
+});
+
+test('SSL: a valid certificate needs confirmation; an expired one does not', async () => {
+  const s = await sslSite();
+  accounts.klant.cert = VALID_CERT;
+  const first = await ssl(s.id);
+  assert.equal(first.ok, false);
+  assert.equal(first.needs_confirmation, true);
+  assert.match(first.message, /^Er is al een geldig certificaat \(geldig tot .*\)\. Opnieuw aanvragen vervangt het\.$/);
+  assert.equal(issues().length, 0);
+  assert.equal((await row(s.id)).ssl_state, null);
+  assert.equal((await ssl(s.id, { confirm: '1' })).ok, true);
+  assert.equal(issues().length, 1);
+
+  accounts.klant.cert = EXPIRED_CERT;
+  assert.equal((await ssl(s.id)).ok, true);
+  assert.equal(issues().length, 2);
+});
+
+test('SSL: one request per site at a time, independent of runs, no run row', async () => {
+  const s = await sslSite();
+  await db.query("INSERT INTO runs (site_id, action, status) VALUES ($1, 'live', 'running')", [s.id]);
+  let open;
+  accounts.klant.sslGate = new Promise((r) => { open = r; });
+  const pending = ssl(s.id);
+  while (!issues().length) await new Promise((r) => setTimeout(r, 10));
+  const second = await post(`/sites/${s.id}/ssl`);
+  assert.equal(second.status, 409);
+  assert.deepEqual(await second.json(), { ok: false, message: 'Er loopt al een SSL-aanvraag voor deze site.' });
+  open();
+  assert.equal((await pending).ok, true);
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM runs WHERE site_id = $1', [s.id])).rows[0].n, 1);
+  await db.query('DELETE FROM runs WHERE site_id = $1', [s.id]);
+});
+
+test('SSL: DNS failure is stored readably and leaves an ssl=OFF account as found', async () => {
+  const s = await sslSite();
+  accounts.klant.ssl = 'OFF';
+  accounts.klant.sslFail = 'DNS problem: NXDOMAIN looking up A for klant.nl';
+  const body = await ssl(s.id);
+  assert.deepEqual(body, { ok: false, message: 'Het domein wijst (nog) niet naar deze server (DNS). Richt de DNS en probeer het daarna opnieuw.' });
+  const st = (await row(s.id)).ssl_state;
+  assert.equal(st.status, 'failed');
+  assert.equal(st.error, body.message);
+  assert.equal(accounts.klant.ssl, 'OFF');
+  assert.equal(accounts.klant.cert, undefined);
+  assert.deepEqual(calls.filter((c) => c.cmd === 'CMD_API_MODIFY_USER').map((c) => c.params.ssl), ['ON', undefined]);
+  assert.match(await (await get(`/sites/${s.id}/runs`)).text(), /SSL-aanvraag mislukt .*: Het domein wijst/);
+  assert.match(await (await get('/')).text(), /badge failed">mislukt/);
+});
+
+test('run page: a live run failing check_https offers SSL and a hidden go-live-again form; a deploy run does not', async () => {
+  const s = await sslSite();
+  const insert = async (action, result) => (await db.query(
+    "INSERT INTO runs (site_id, action, status, result, exit_code) VALUES ($1, $2, 'needs_confirmation', $3, 3) RETURNING id", [s.id, action, result])).rows[0].id;
+  const live = await insert('live', { check_https: 'fail:geen geldig certificaat' });
+  const html = await (await get(`/sites/${s.id}/runs/${live}`)).text();
+  assert.match(html, /HTTPS werkt nog niet/);
+  assert.match(html, /data-ssl="\/sites\/\d+\/ssl" data-target="ssl_result" data-show-after="ssl_retry_live"/);
+  assert.match(html, /<form id="ssl_retry_live" method="post" action="\/sites\/\d+\/run\/live" hidden>/);
+  const deploy = await insert('deploy', { check_https: 'fail:x' });
+  const other = await (await get(`/sites/${s.id}/runs/${deploy}`)).text();
+  assert.doesNotMatch(other, /ssl_retry_live|data-ssl=/);
+  await db.query('DELETE FROM runs WHERE site_id = $1', [s.id]);
+});
+
+// Runs the layout's inline script of a rendered page against a minimal fake DOM, with fetch
+// going to the app as the logged-in admin. Enough to drive the data-ssl button handler.
+async function runPageScript(html, { confirmAnswer = true } = {}) {
+  const script = html.slice(html.indexOf('</main>')).match(/<script>([\s\S]*?)<\/script>/)[1];
+  const elements = {};
+  const el = (id) => (elements[id] ??= { id, hidden: /hidden/.test(html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? '') });
+  const buttons = [...html.matchAll(/<button [^>]*data-ssl="([^"]+)" data-target="([^"]*)" data-show-after="([^"]*)"[^>]*>([^<]*)</g)]
+    .map(([, ssl, target, showAfter, text]) => ({ dataset: { ssl, target, showAfter }, textContent: text, listeners: [],
+      addEventListener(type, fn) { this.listeners.push(fn); } }));
+  const confirms = [];
+  const sandbox = {
+    document: {
+      addEventListener() {},
+      querySelectorAll: (sel) => (sel === 'button[data-ssl]' ? buttons : []),
+      getElementById: el,
+    },
+    fetch: (path, opts = {}) => fetch(base + path, { ...opts, headers: { origin: base, cookie } }),
+    confirm: (msg) => { confirms.push(msg); return confirmAnswer; },
+    URLSearchParams, setTimeout, navigator: {}, window: {},
+  };
+  const { runInNewContext } = await import('node:vm');
+  runInNewContext(script, sandbox);
+  assert.equal(buttons.length, 1);
+  for (const fn of buttons[0].listeners) await fn();
+  // The handler awaits two fetches internally; wait until the button is reset.
+  while (buttons[0].disabled) await new Promise((r) => setTimeout(r, 10));
+  return { el, confirms, button: buttons[0] };
+}
+
+test('run page script: a successful SSL request unhides the go-live-again form; a failure keeps it hidden', async () => {
+  const s = await sslSite();
+  const live = (await db.query(
+    "INSERT INTO runs (site_id, action, status, result, exit_code) VALUES ($1, 'live', 'needs_confirmation', $2, 3) RETURNING id",
+    [s.id, { check_https: 'fail:geen certificaat' }])).rows[0].id;
+  const page = async () => (await get(`/sites/${s.id}/runs/${live}`)).text();
+
+  accounts.klant.sslFail = 'DNS problem: NXDOMAIN looking up A for klant.nl';
+  let r = await runPageScript(await page());
+  assert.equal(r.el('ssl_retry_live').hidden, true);
+  assert.equal(r.el('ssl_result').className, 'error');
+  assert.match(r.el('ssl_result').textContent, /DNS/);
+
+  delete accounts.klant.sslFail;
+  r = await runPageScript(await page());
+  assert.equal(r.el('ssl_result').className, 'badge success');
+  assert.match(r.el('ssl_result').textContent, /^Certificaat aangevraagd voor klant\.nl en www\.klant\.nl/);
+  assert.equal(r.el('ssl_retry_live').hidden, false);
+  assert.equal(r.button.textContent, 'SSL aanvragen');
+  // Nothing started by itself: still only this one run.
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM runs WHERE site_id = $1', [s.id])).rows[0].n, 1);
+
+  // Valid certificate now installed: declining the confirmation sends no issue request.
+  calls = [];
+  r = await runPageScript(await page(), { confirmAnswer: false });
+  assert.match(r.confirms[0], /^Er is al een geldig certificaat/);
+  assert.equal(issues().length, 0);
+  assert.equal(r.el('ssl_retry_live').hidden, true);
+  r = await runPageScript(await page(), { confirmAnswer: true });
+  assert.equal(issues().length, 1);
+  assert.equal(r.el('ssl_retry_live').hidden, false);
+  await db.query('DELETE FROM runs WHERE site_id = $1', [s.id]);
 });

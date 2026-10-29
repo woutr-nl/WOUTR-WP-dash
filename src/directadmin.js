@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { randomInt, X509Certificate } from 'node:crypto';
 
 // DirectAdmin reseller client (legacy API, Basic auth, json=yes) and the per-account
 // key installation. DB- and config-free: callers pass conn = { url, username, password }.
@@ -12,6 +12,11 @@ export const DA_MESSAGE = {
   ssh_not_allowed: 'SSH is niet toegestaan voor dit hosting-account (pakket of reseller staat het niet toe).',
   denied: 'DirectAdmin weigerde de opdracht.',
   db_denied: 'DirectAdmin weigerde de database aan te maken.',
+  ssl_denied: 'DirectAdmin weigerde de certificaataanvraag.',
+  ssl_no_right: 'De login key mist het recht CMD_API_SSL; voeg die opdracht toe aan de login key in DirectAdmin.',
+  ssl_dns: 'Het domein wijst (nog) niet naar deze server (DNS). Richt de DNS en probeer het daarna opnieuw.',
+  ssl_rate: 'De Let\'s Encrypt-limiet voor dit domein is bereikt; probeer het later opnieuw.',
+  ssl_not_allowed: 'SSL is niet toegestaan voor dit hosting-account (pakket of reseller staat het niet toe).',
 };
 
 export const KEY_LABEL = 'woutr-dash';
@@ -26,7 +31,7 @@ class DaError extends Error {
 
 const isError = (v) => v !== undefined && v !== null && v !== '' && v !== '0' && v !== 0 && v !== false;
 
-export async function daRequest(conn, cmd, { method = 'GET', params = {}, loginAs } = {}) {
+export async function daRequest(conn, cmd, { method = 'GET', params = {}, loginAs, timeout = 10_000 } = {}) {
   const user = loginAs ? `${conn.username}|${loginAs}` : conn.username;
   const auth = `Basic ${Buffer.from(`${user}:${conn.password}`).toString('base64')}`;
   const query = new URLSearchParams({ ...params, json: 'yes' });
@@ -36,7 +41,7 @@ export async function daRequest(conn, cmd, { method = 'GET', params = {}, loginA
   else body = query; // fetch sends it as application/x-www-form-urlencoded
   let res, text;
   try {
-    res = await fetch(url, { method, body, headers: { Authorization: auth }, redirect: 'manual', signal: AbortSignal.timeout(10_000) });
+    res = await fetch(url, { method, body, headers: { Authorization: auth }, redirect: 'manual', signal: AbortSignal.timeout(timeout) });
     text = await res.text();
   } catch {
     throw new DaError('unreachable');
@@ -148,10 +153,11 @@ const CONFIG_META = new Set(['username', 'usertype', 'creator', 'package', 'acco
   'suspended', 'ip', 'original_ip', 'domain', 'email', 'name', 'zoom', 'docsroot']);
 const PASS_THROUGH = ['ns1', 'ns2', 'language', 'skin'];
 
-// SHOW_USER_CONFIG → MODIFY_USER action=customize with ssh=ON. Generic read-modify-write:
-// DirectAdmin turns absent checkboxes OFF and resets omitted limits, so every ON flag,
-// unlimited limit and numeric limit is re-sent, including ones this code doesn't know.
-export function buildCustomizeParams(userConfig) {
+// SHOW_USER_CONFIG → MODIFY_USER action=customize with flags forced (default ssh=ON). Generic
+// read-modify-write: DirectAdmin turns absent checkboxes OFF and resets omitted limits, so every
+// ON flag, unlimited limit and numeric limit is re-sent, including ones this code doesn't know.
+// flags = {} is a pure round-trip of the given config.
+export function buildCustomizeParams(userConfig, flags = { ssh: 'ON' }) {
   const p = {};
   for (const [k, v] of Object.entries(userConfig ?? {})) {
     if (CONFIG_META.has(k) || typeof v !== 'string') continue;
@@ -160,7 +166,7 @@ export function buildCustomizeParams(userConfig) {
     else if (/^\d+(\.\d+)?$/.test(v)) p[k] = v;
   }
   for (const k of PASS_THROUGH) if (typeof userConfig?.[k] === 'string') p[k] = userConfig[k];
-  return { ...p, ssh: 'ON', action: 'customize', user: userConfig?.username };
+  return { ...p, ...flags, action: 'customize', user: userConfig?.username };
 }
 
 // Makes sure `user` has SSH on and our current key authorized; removes entries whose blob
@@ -204,4 +210,103 @@ export async function ensureKeyInstalled(conn, { user, publicKey, retiredKeys = 
   } catch (e) {
     return { ok: false, error: messageFor(e, deniedCode) };
   }
+}
+
+// Dutch reason for a failed CMD_API_SSL call. Those run after SHOW_USER_CONFIG succeeded with
+// the same key, so a login failure here means the login key lacks CMD_API_SSL.
+export function classifySslFailure(e) {
+  if (!(e instanceof DaError)) return DA_MESSAGE.unreachable;
+  if (e.code === 'auth') return DA_MESSAGE.ssl_no_right;
+  if (e.code !== 'denied') return e.message;
+  if (/rate ?limit|too many (certificates|failed)/i.test(e.detail)) return DA_MESSAGE.ssl_rate;
+  if (/DNS problem|NXDOMAIN|no valid A record|Timeout during connect|Connection refused|Invalid response/i.test(e.detail)) return DA_MESSAGE.ssl_dns;
+  if (/cannot execute that command|not allowed/i.test(e.detail)) return DA_MESSAGE.ssl_no_right;
+  return new DaError('ssl_denied', e.detail).message;
+}
+
+// The installed certificate's field name differs between DirectAdmin versions: scan the values.
+export function extractCertificatePem(data) {
+  for (const v of Object.values(data ?? {})) {
+    const m = typeof v === 'string' && v.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+// { names, expiresAt, valid } of the certificate installed for domain, or null. Throws DaError.
+export async function getCertificateInfo(conn, user, domain) {
+  const pem = extractCertificatePem(await daRequest(conn, 'CMD_API_SSL', { loginAs: user, params: { domain } }));
+  if (!pem) return null;
+  let cert;
+  try {
+    cert = new X509Certificate(pem);
+  } catch {
+    return null;
+  }
+  const san = (cert.subjectAltName ?? '').split(', ').filter((s) => s.startsWith('DNS:')).map((s) => s.slice(4));
+  const names = san.length ? san : [cert.subject.match(/CN=([^\n,]+)/)?.[1]].filter(Boolean);
+  const expires = new Date(cert.validTo);
+  return { names, expiresAt: expires.toISOString(), valid: expires > new Date() && Boolean(cert.checkHost(domain)) };
+}
+
+const issueLetsEncrypt = (conn, user, names) => daRequest(conn, 'CMD_API_SSL', {
+  method: 'POST', loginAs: user, timeout: 90_000, // the ACME exchange runs inside this call
+  params: {
+    domain: names[0], action: 'save', type: 'create', request: 'letsencrypt', name: names[0],
+    keysize: 'secp384r1', encryption: 'sha256', submit: 'Save',
+    ...Object.fromEntries(names.map((n, i) => [`le_select${i}`, n])),
+  },
+});
+
+// Let's Encrypt for domain + www.domain (bare domain alone when DirectAdmin refused www). Turns
+// SSL on for the account when needed and back off when the request then fails. Never throws.
+export async function requestLetsEncrypt(conn, { user, domain }) {
+  let originalCfg, turnedSslOn = false;
+  // Best-effort: re-send the original config without ssl (= OFF) when we turned it on.
+  const fail = async (error) => {
+    if (turnedSslOn) {
+      try {
+        await daRequest(conn, 'CMD_API_MODIFY_USER', { method: 'POST', params: { ...buildCustomizeParams(originalCfg, {}), user } });
+      } catch {
+        error += '; de SSL-instelling van het account kon niet worden teruggezet';
+      }
+    }
+    return { ok: false, error };
+  };
+  try {
+    originalCfg = await daRequest(conn, 'CMD_API_SHOW_USER_CONFIG', { params: { user } });
+    if (originalCfg?.ssl !== 'ON') {
+      try {
+        await daRequest(conn, 'CMD_API_MODIFY_USER', { method: 'POST', params: { ...buildCustomizeParams(originalCfg, { ssl: 'ON' }), user } });
+      } catch (e) {
+        return { ok: false, error: messageFor(e, 'ssl_not_allowed') };
+      }
+      turnedSslOn = true;
+      const cfg = await daRequest(conn, 'CMD_API_SHOW_USER_CONFIG', { params: { user } });
+      if (cfg?.ssl !== 'ON') return { ok: false, error: DA_MESSAGE.ssl_not_allowed };
+    }
+  } catch (e) {
+    return fail(messageFor(e));
+  }
+
+  let issued = [domain, `www.${domain}`], firstError = null;
+  try {
+    await issueLetsEncrypt(conn, user, issued);
+  } catch (e) {
+    // Only a refusal can be about www; auth/unreachable/timeout would fail the same way again.
+    if (!(e instanceof DaError) || e.code !== 'denied') return fail(classifySslFailure(e));
+    firstError = e;
+    issued = [domain];
+    try {
+      await issueLetsEncrypt(conn, user, issued);
+    } catch {
+      return fail(classifySslFailure(firstError));
+    }
+  }
+  let cert = null;
+  try { cert = await getCertificateInfo(conn, user, domain); } catch { /* the issue itself succeeded */ }
+  return {
+    ok: true, names: cert?.names ?? issued, expiresAt: cert?.expiresAt ?? null, wwwDropped: Boolean(firstError),
+    ...(firstError && { wwwError: classifySslFailure(firstError) }),
+  };
 }

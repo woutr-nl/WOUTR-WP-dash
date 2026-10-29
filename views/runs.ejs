@@ -12,6 +12,9 @@
   <span id="ssh_test_result" role="status" hidden></span>
   <a id="ssh_test_link" href="/ssh-key" hidden>SSH-sleutel</a>
 </div>
+<div class="secret-actions">
+  <%- include('ssl-status', { site, daConfigured }) %>
+</div>
 <% if (busy) { %><p class="notice">Er is nu een run bezig voor deze site.</p><% } %>
 <% if (site.has_admin_pass) { %>
   <div class="secret-actions">
