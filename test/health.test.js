@@ -452,6 +452,65 @@ test('a site answering 200 with an invalid certificate only gets a certificate n
   assert.deepEqual((await notifications(id)).map((n) => n.kind), ['health:cert']);
 });
 
+test('an HTTPS site that is down only gets the unreachable notification', async (t) => {
+  stubCert(t, () => ({ ok: false, error: 'verbinding geweigerd' }));
+  const id = await addSite({ url: secureUrl });
+  handler = down;
+  await check(id);
+  const res = await check(id);
+  assert.match(res.message, /Certificaat: site niet bereikbaar/);
+  const { checks } = await health(id);
+  assert.equal(checks.cert.status, 'skipped');
+  assert.equal(checks.cert.fails, 0);
+  assert.deepEqual((await notifications(id)).map((n) => n.kind), ['health:reachable']);
+});
+
+test('a down site leaves an open certificate notification as it is', async (t) => {
+  let facts = FACTS(days(5));
+  stubCert(t, () => facts);
+  const id = await addSite({ url: secureUrl });
+  await check(id);
+  facts = { ok: false, error: 'time-out' };
+  handler = down;
+  await check(id);
+  const [cert] = (await openOf(id)).filter((n) => n.kind === 'health:cert');
+  assert.equal(cert.severity, 'warning');
+});
+
+test('a failed certificate connection on an answering site still counts as a certificate failure', async (t) => {
+  stubCert(t, () => ({ ok: false, error: 'time-out' }));
+  const id = await addSite({ url: secureUrl });
+  await check(id);
+  await check(id);
+  assert.deepEqual((await openOf(id)).map((n) => n.kind), ['health:cert']);
+});
+
+test('changing the site URL from https to http resolves the certificate notification', async (t) => {
+  stubCert(t, () => FACTS(days(5)));
+  const id = await addSite({ url: secureUrl });
+  await check(id);
+  assert.equal((await openOf(id)).length, 1);
+  await db.query('UPDATE sites SET site_url = $2 WHERE id = $1', [id, webUrl]);
+  await check(id);
+  assert.deepEqual(await openOf(id), []);
+  assert.ok((await notifications(id))[0].resolved_at);
+  assert.equal((await health(id)).checks.cert.status, 'skipped');
+  assert.equal('notApplicable' in (await health(id)).checks.cert, false);
+});
+
+test('a dismissed certificate notification stops blocking once the URL is no longer https', async (t) => {
+  stubCert(t, () => FACTS(days(5)));
+  const id = await addSite({ url: secureUrl });
+  await check(id);
+  await post(`/meldingen/${(await notifications(id))[0].id}/afvinken`);
+  await db.query('UPDATE sites SET site_url = $2 WHERE id = $1', [id, webUrl]);
+  await check(id);
+  await db.query('UPDATE sites SET site_url = $2 WHERE id = $1', [id, secureUrl]);
+  await check(id);
+  assert.equal((await openOf(id)).length, 1);
+  assert.equal((await notifications(id)).length, 2);
+});
+
 test('failed and interrupted runs notify with a link; a later success of that action resolves', async () => {
   const id = await addSite();
   const run = await addRun(id, 'update', 'failed');

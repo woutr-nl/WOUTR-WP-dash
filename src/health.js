@@ -48,15 +48,17 @@ export async function checkSite(site) {
       EXISTS (SELECT 1 FROM runs WHERE site_id = s.id AND action = 'live' AND status = 'success') AS live
       FROM sites s WHERE id = $1`, [site.id]);
     const response = await fetchInsecure(site.site_url).catch((e) => ({ error: describeError(e) }));
+    const reachable = checkReachable(response);
     const results = {
-      reachable: checkReachable(response),
-      cert: await checkCert(site.site_url),
+      reachable,
+      cert: await checkCert(site.site_url, reachable),
       noindex: checkNoindex(response, state?.live),
     };
 
     const checks = {};
-    for (const [name, result] of Object.entries(results)) {
-      checks[name] = { ...result, fails: await applyResult(site.id, name, result, state?.health?.checks?.[name]?.fails ?? 0) };
+    for (const [name, { notApplicable, ...result }] of Object.entries(results)) {
+      const prevFails = state?.health?.checks?.[name]?.fails ?? 0;
+      checks[name] = { ...result, fails: await applyResult(site.id, name, { ...result, notApplicable }, prevFails) };
     }
     const statuses = Object.values(checks).map((c) => c.status);
     const status = statuses.includes('failed') ? 'problem' : statuses.includes('warning') ? 'warning' : 'ok';
@@ -77,6 +79,11 @@ const MESSAGE = {
 // Notifies or resolves for one check; returns its new consecutive-failure streak.
 async function applyResult(siteId, name, result, prevFails) {
   const kind = `health:${name}`;
+  if (result.notApplicable) {
+    // E.g. the site URL changed from https to http: the check is over, not merely unknown.
+    await resolve(siteId, kind);
+    return 0;
+  }
   if (result.status === 'skipped') return prevFails;
   if (result.status === 'failed') {
     const fails = prevFails + 1;
@@ -93,14 +100,17 @@ function checkReachable(response) {
   return response.status >= 200 && response.status < 400 ? { status: 'ok' } : { status: 'failed', detail: `HTTP ${response.status}` };
 }
 
-async function checkCert(siteUrl) {
+async function checkCert(siteUrl, reachable) {
   const url = new URL(siteUrl);
-  if (url.protocol !== 'https:') return { status: 'skipped', detail: 'geen HTTPS' };
-  return classifyCert(await probes.tls(url.hostname, Number(url.port) || 443));
+  if (url.protocol !== 'https:') return { status: 'skipped', detail: 'geen HTTPS', notApplicable: true };
+  const facts = await probes.tls(url.hostname, Number(url.port) || 443);
+  // A site that is simply down says nothing about its certificate: Bereikbaar reports it.
+  if (!facts.ok && reachable.status === 'failed') return { status: 'skipped', detail: 'site niet bereikbaar' };
+  return classifyCert(facts);
 }
 
 function checkNoindex(response, live) {
-  if (!live) return { status: 'skipped', detail: 'site is niet live' };
+  if (!live) return { status: 'skipped', detail: 'site is niet live', notApplicable: true };
   if (checkReachable(response).status !== 'ok') return { status: 'skipped', detail: 'site niet bereikbaar' };
   if (/noindex/i.test(response.headers['x-robots-tag'] ?? '')) return { status: 'failed', detail: 'noindex in X-Robots-Tag-header' };
   // Two steps on purpose: the body is untrusted, and one regex spanning both would backtrack for minutes on the event loop.
