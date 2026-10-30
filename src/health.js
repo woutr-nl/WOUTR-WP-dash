@@ -56,9 +56,10 @@ export async function checkSite(site) {
     };
 
     const checks = {};
-    for (const [name, { notApplicable, ...result }] of Object.entries(results)) {
+    for (const [name, result] of Object.entries(results)) {
       const prevFails = state?.health?.checks?.[name]?.fails ?? 0;
-      checks[name] = { ...result, fails: await applyResult(site.id, name, { ...result, notApplicable }, prevFails) };
+      const { notApplicable, ...stored } = result;
+      checks[name] = { ...stored, fails: await applyResult(site.id, name, result, prevFails) };
     }
     const statuses = Object.values(checks).map((c) => c.status);
     const status = statuses.includes('failed') ? 'problem' : statuses.includes('warning') ? 'warning' : 'ok';
