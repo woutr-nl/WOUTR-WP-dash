@@ -103,8 +103,9 @@ function checkNoindex(response, live) {
   if (!live) return { status: 'skipped', detail: 'site is niet live' };
   if (checkReachable(response).status !== 'ok') return { status: 'skipped', detail: 'site niet bereikbaar' };
   if (/noindex/i.test(response.headers['x-robots-tag'] ?? '')) return { status: 'failed', detail: 'noindex in X-Robots-Tag-header' };
-  const metas = response.body.match(/<meta[^>]+name=["']?robots["']?[^>]*>/gi) ?? [];
-  return metas.some((m) => /noindex/i.test(m)) ? { status: 'failed', detail: 'noindex in robots-metatag' } : { status: 'ok' };
+  // Two steps on purpose: the body is untrusted, and one regex spanning both would backtrack for minutes on the event loop.
+  const metas = response.body.match(/<meta\b[^<>]*>/gi) ?? [];
+  return metas.some((m) => /name=["']?robots["']?/i.test(m) && /noindex/i.test(m)) ? { status: 'failed', detail: 'noindex in robots-metatag' } : { status: 'ok' };
 }
 
 const fmtDay = (d) => d.toLocaleDateString('nl-NL', { timeZone: 'Europe/Amsterdam' });

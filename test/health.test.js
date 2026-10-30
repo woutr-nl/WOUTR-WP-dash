@@ -272,6 +272,34 @@ for (const [name, serveNoindex] of [
   });
 }
 
+test('robots meta variants are detected; other meta tags mentioning noindex are not', async () => {
+  const id = await addSite({ live: true });
+  for (const [tag, status] of [
+    ['<meta name="robots" content="noindex">', 'failed'],
+    ['<meta name=robots content=noindex>', 'failed'],
+    ['<META content="NOINDEX, follow" NAME="Robots" />', 'failed'],
+    ['<meta name="description" content="noindex"><meta name="robots" content="index">', 'ok'],
+    ['<meta name="robots" content="noindex"', 'ok'],
+  ]) {
+    handler = (req, res) => res.end(`<html><head>${tag}`);
+    await check(id);
+    assert.equal((await health(id)).checks.noindex.status, status, tag);
+  }
+});
+
+test('a hostile 512 KB body of unclosed robots tags cannot stall the check', async () => {
+  const id = await addSite({ live: true });
+  const body = '<meta name=robots '.repeat(Math.ceil(512 * 1024 / 18));
+  handler = (req, res) => res.end(body);
+  const start = performance.now();
+  await check(id);
+  assert.ok(performance.now() - start < 1000, 'finishes quickly');
+  const { checks } = await health(id);
+  assert.equal(checks.reachable.status, 'ok');
+  assert.equal(checks.noindex.status, 'ok');
+  assert.deepEqual(await notifications(id), []);
+});
+
 test('a later failed live run still counts as live for the noindex check', async () => {
   const id = await addSite({ live: true });
   await addRun(id, 'live', 'failed');
