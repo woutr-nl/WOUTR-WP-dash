@@ -54,5 +54,12 @@ export async function runFinished(siteId, action, runId, status) {
 // A run still 'running' at boot was cut off by a restart.
 export async function markInterruptedRuns() {
   const { rows } = await pool.query(`UPDATE runs SET status = 'interrupted', finished_at = now() WHERE status = 'running' RETURNING id, site_id, action`);
-  for (const r of rows) await runFinished(r.site_id, r.action, r.id, 'interrupted');
+  for (const r of rows) {
+    // The status is already committed: a lost notification must not stop the boot.
+    try {
+      await runFinished(r.site_id, r.action, r.id, 'interrupted');
+    } catch (e) {
+      console.error(`Melding voor run ${r.id} niet opgeslagen: ${e.message}`);
+    }
+  }
 }

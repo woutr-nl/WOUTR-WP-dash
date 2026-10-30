@@ -1,7 +1,6 @@
 <div class="bar">
   <h1>Meldingen</h1>
 </div>
-<% const severity = { warning: { badge: 'warning', label: 'Waarschuwing' }, problem: { badge: 'failed', label: 'Probleem' } }; %>
 <% const row = (n) => (n.run_id ? { href: `/sites/${n.site_id}/runs/${n.run_id}`, text: 'Bekijk run' } : { href: `/sites/${n.site_id}/runs`, text: 'Bekijk site' }); %>
 <h2>Open</h2>
 <% if (!open.length) { %>
@@ -13,7 +12,7 @@
     <% for (const n of open) { const link = row(n); %>
       <tr>
         <td data-label="Site"><a href="/sites/<%= n.site_id %>/runs"><%= n.site_title %></a></td>
-        <td data-label="Ernst"><span class="badge <%= severity[n.severity].badge %>"><%= severity[n.severity].label %></span></td>
+        <td data-label="Ernst"><span class="badge <%= HEALTH_STATUS[n.severity].badge %>"><%= HEALTH_STATUS[n.severity].label %></span></td>
         <td data-label="Melding"><%= n.message %></td>
         <td data-label="Sinds"><small>sinds <%= fmtDate(n.created_at) %></small></td>
         <td class="actions">
@@ -35,7 +34,7 @@
     <% for (const n of closed) { const link = row(n); %>
       <tr>
         <td data-label="Site"><a href="/sites/<%= n.site_id %>/runs"><%= n.site_title %></a></td>
-        <td data-label="Ernst"><span class="badge <%= severity[n.severity].badge %>"><%= severity[n.severity].label %></span></td>
+        <td data-label="Ernst"><span class="badge <%= HEALTH_STATUS[n.severity].badge %>"><%= HEALTH_STATUS[n.severity].label %></span></td>
         <td data-label="Melding"><%= n.message %></td>
         <td data-label="Sinds"><small>sinds <%= fmtDate(n.created_at) %></small></td>
         <td data-label="Afgehandeld"><small><%= n.dismissed_at ? `afgevinkt ${fmtDate(n.dismissed_at)}` : `opgelost ${fmtDate(n.resolved_at)}` %></small></td>

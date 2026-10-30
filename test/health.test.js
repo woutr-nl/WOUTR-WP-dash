@@ -491,6 +491,23 @@ test('markInterruptedRuns flips running runs and notifies', async () => {
   assert.equal(n.run_id, run);
 });
 
+test('markInterruptedRuns survives a failing notification and still notifies the other runs', async (t) => {
+  const a = await addSite({ url: `${webUrl}/a` });
+  const b = await addSite({ url: `${webUrl}/b` });
+  await addRun(a, 'deploy', 'running');
+  const other = await addRun(b, 'deploy', 'running');
+  pool.query = async (sql, params) => {
+    if (/INSERT INTO notifications/.test(sql) && params[0] === a) throw new Error('kapot');
+    return query(sql, params);
+  };
+  t.after(() => { pool.query = query; });
+  await markInterruptedRuns();
+  assert.deepEqual(await notifications(a), []);
+  assert.equal((await openOf(b))[0].run_id, other);
+  const { rows } = await db.query(`SELECT count(*)::int AS n FROM runs WHERE status = 'running'`);
+  assert.equal(rows[0].n, 0);
+});
+
 test('repeated failed runs keep one open notification linking the newest run', async () => {
   const id = await addSite();
   await runFinished(id, 'update', await addRun(id, 'update', 'failed'), 'failed');
