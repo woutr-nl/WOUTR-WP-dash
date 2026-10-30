@@ -111,6 +111,12 @@ Op de pagina **Runs** van een site staan de knoppen **Deployen**, **Bijwerken** 
 
 **SSH-hostsleutels**: bij de eerste verbinding met een server wordt diens hostsleutel vertrouwd en onthouden. Verandert die sleutel later, dan weigert SSH te verbinden en mislukt de run met een duidelijke melding. Klopt de nieuwe sleutel (bijv. na een serververhuizing), verwijder dan de oude regel van die host uit `/data/ssh/known_hosts` in de container: `docker compose exec app ssh-keygen -R <host> -f /data/ssh/known_hosts`.
 
+## Gezondheidscontrole en meldingen
+
+Elk uur controleert het dashboard elke gedeployde site over HTTP(S), zonder SSH en zonder iets op de site te veranderen: **Bereikbaar** (2xx/3xx binnen 10 seconden), **Certificaat** (geldig voor de host, waarschuwing binnen 14 dagen voor het verlopen) en, voor sites die ooit live zijn gegaan, **Indexering** (geen `noindex`). Het overzicht toont het laatste resultaat per site, de pagina Runs per controle, met de knop **Nu controleren**. De controle staat los van runs en komt niet in de geschiedenis.
+
+**Meldingen** (link in de menubalk, met het aantal open meldingen) ontstaan bij een mislukte of onderbroken run en bij een controle die twee keer achter elkaar faalt; een certificaatwaarschuwing meteen. Een melding lost zichzelf op zodra de controle slaagt of een latere run van dezelfde actie slaagt. **Afvinken** kan ook met de hand; een afgevinkt gezondheidsprobleem komt pas terug nadat de controle eerst weer is geslaagd. Opgeloste en afgevinkte meldingen blijven 30 dagen zichtbaar. Er gaat niets buiten het dashboard (geen e-mail of chat).
+
 ## Lokaal draaien
 
 Met Docker en compose, vanuit de lokale broncode en zonder in te loggen bij `ghcr.io`. Bouw eerst zelf de image met de tag `local` en laat compose die gebruiken; omdat de image lokaal bestaat, haalt compose niets op. De variabelen worden geëxporteerd in de shell (geen `.env`):

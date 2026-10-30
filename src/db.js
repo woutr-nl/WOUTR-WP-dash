@@ -70,7 +70,23 @@ export async function initDb() {
       password_enc text NOT NULL,
       updated_at   timestamptz NOT NULL DEFAULT now()
     );
-    -- A run still 'running' at boot was cut off by a restart.
-    UPDATE runs SET status = 'interrupted', finished_at = now() WHERE status = 'running';
+    -- Latest health-check result per site: { status: 'ok'|'warning'|'problem', checked_at,
+    --   checks: { reachable|cert|noindex: { status: 'ok'|'warning'|'failed'|'skipped', detail?, expires_at?, fails } } }
+    -- fails is the consecutive-failure streak that gates notifications (survives restarts).
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS health jsonb;
+    CREATE TABLE IF NOT EXISTS notifications (
+      id           serial PRIMARY KEY,
+      site_id      integer NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+      kind         text NOT NULL, -- 'run:deploy'|'run:update'|'run:live'|'health:reachable'|'health:cert'|'health:noindex'
+      severity     text NOT NULL CHECK (severity IN ('warning','problem')),
+      message      text NOT NULL,
+      run_id       integer REFERENCES runs(id) ON DELETE CASCADE,
+      created_at   timestamptz NOT NULL DEFAULT now(),
+      resolved_at  timestamptz,
+      dismissed_at timestamptz
+    );
+    -- One unresolved notification per site per problem; a dismissed-but-unresolved row
+    -- still blocks re-creation of a health problem until it has passed once (resolved_at set).
+    CREATE UNIQUE INDEX IF NOT EXISTS notifications_open_idx ON notifications (site_id, kind) WHERE resolved_at IS NULL;
   `);
 }

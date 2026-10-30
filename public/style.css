@@ -46,6 +46,8 @@ h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
 .badge.running { background: #d6e4fb; color: #0b3d91; }
 .badge.needs_confirmation { background: #fff1c2; color: #7a5200; }
 .badge.interrupted { background: #ececec; color: #555; }
+.badge.warning { background: #fff1c2; color: #7a5200; }
+table.sites + .secret-actions { margin-top: 1rem; }
 .notice { padding: .5rem .75rem; border-radius: 6px; background: #fff7d6; }
 .confirm { padding: .75rem 1rem; border: 2px solid #c62828; border-radius: 8px; background: #fff; margin: 1rem 0; }
 .confirm form { margin: 0; }

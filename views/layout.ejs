@@ -11,6 +11,7 @@
     <a class="brand" href="/">WOUTR-WP dashboard</a>
     <% if (loggedIn) { %>
       <nav>
+        <a href="/meldingen">Meldingen<% if (locals.meldingen > 0) { %> <span class="badge failed"><%= meldingen %></span><% } %></a>
         <a href="/ssh-key">SSH-sleutel</a>
         <a href="/instellingen">Instellingen</a>
         <form method="post" action="/logout"><button type="submit" class="link">Uitloggen</button></form>

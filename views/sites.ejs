@@ -6,7 +6,7 @@
   <p class="empty">Nog geen sites. Voeg de eerste site toe.</p>
 <% } else { %>
   <table class="sites">
-    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th>SSH-sleutel</th><th>SSL</th><th></th></tr></thead>
+    <thead><tr><th>Site</th><th>Klant-slug</th><th>Thematype</th><th>Laatste run</th><th>Gezondheid</th><th>SSH-sleutel</th><th>SSL</th><th></th></tr></thead>
     <tbody>
     <% for (const s of sites) { %>
       <tr>
@@ -19,6 +19,12 @@
             <span class="badge <%= s.last_status %>"><%= STATUS_LABEL[s.last_status] %></span><br>
             <small><%= fmtDate(s.last_started_at) %></small>
           <% } else { %><span class="empty">nog geen</span><% } %>
+        </td>
+        <td data-label="Gezondheid">
+          <% if (s.health) { %>
+            <span class="badge <%= HEALTH_STATUS[s.health.status].badge %>"><%= HEALTH_STATUS[s.health.status].label %></span><br>
+            <small><%= fmtDate(s.health.checked_at) %></small>
+          <% } else { %><span class="empty">—</span><% } %>
         </td>
         <td data-label="SSH-sleutel">
           <%- include('key-status', { s, daConfigured }) %>

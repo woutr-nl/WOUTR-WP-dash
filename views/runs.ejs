@@ -28,6 +28,31 @@
   </div>
 <% } %>
 
+<% if (deployed) { %>
+  <h2>Gezondheid</h2>
+  <% if (!site.health) { %>
+    <p class="empty">Nog niet gecontroleerd.</p>
+  <% } else { %>
+    <table class="sites">
+      <thead><tr><th>Controle</th><th>Resultaat</th><th>Toelichting</th><th>Gecontroleerd</th></tr></thead>
+      <tbody>
+      <% for (const [key, label] of Object.entries(CHECK_LABEL)) { const check = site.health.checks[key]; %>
+        <tr>
+          <td data-label="Controle"><%= label %></td>
+          <td data-label="Resultaat"><span class="badge <%= HEALTH_STATUS[check.status].badge %>"><%= HEALTH_STATUS[check.status].label %></span></td>
+          <td data-label="Toelichting"><%= check.detail ?? '' %></td>
+          <td data-label="Gecontroleerd"><small><%= fmtDate(site.health.checked_at) %></small></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+  <div class="secret-actions">
+    <button type="button" class="secondary" data-test="/sites/<%= site.id %>/check" data-target="health_check_result">Nu controleren</button>
+    <span id="health_check_result" role="status" hidden></span>
+  </div>
+<% } %>
+
 <h2>Geschiedenis</h2>
 <% if (!runs.length) { %>
   <p class="empty">Nog geen runs voor deze site.</p>
