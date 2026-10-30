@@ -3,9 +3,12 @@ import { initDb } from './db.js';
 import { initRunner } from './runner.js';
 import { initSshKey } from './sshkey.js';
 import { createApp } from './app.js';
+import { markInterruptedRuns } from './notifications.js';
+import { initHealth } from './health.js';
 
 try {
   await initDb();
+  await markInterruptedRuns();
 } catch (e) {
   console.error(`Database niet bereikbaar: ${e.message}`);
   process.exit(1);
@@ -24,3 +27,4 @@ try {
   process.exit(1);
 }
 createApp().listen(config.port, () => console.log(`WOUTR-WP-dash luistert op poort ${config.port}`));
+initHealth();

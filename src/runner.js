@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import config from './config.js';
 import { pool } from './db.js';
 import { encrypt } from './crypto.js';
+import { runFinished } from './notifications.js';
 import { getActivePrivateKey } from './sshkey.js';
 import { buildArgs, parseResult, makeScrubber, makeLineBuffer, statusFromExit, compareVersions, classifySshTest } from './runs.js';
 
@@ -199,6 +200,11 @@ async function execute(site, action, options, secrets, runId) {
   await writes;
   await pool.query(`UPDATE runs SET status = $2, exit_code = $3, result = $4, log = $5, finished_at = now() WHERE id = $1`,
     [runId, status, code, result, log]);
+  try {
+    await runFinished(site.id, action, runId, status);
+  } catch (e) {
+    console.error(`Melding voor run ${runId} niet opgeslagen: ${e.message}`);
+  }
 }
 
 // Logs in with the dashboard key and runs `true`: changes nothing, no run row, no run lock.
