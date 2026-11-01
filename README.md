@@ -117,6 +117,20 @@ Elk uur controleert het dashboard elke gedeployde site over HTTP(S), zonder SSH 
 
 **Meldingen** (link in de menubalk, met het aantal open meldingen) ontstaan bij een mislukte of onderbroken run en bij een controle die twee keer achter elkaar faalt; een certificaatwaarschuwing meteen. Een melding lost zichzelf op zodra de controle slaagt of een latere run van dezelfde actie slaagt. **Afvinken** kan ook met de hand; een afgevinkt gezondheidsprobleem komt pas terug nadat de controle eerst weer is geslaagd. Opgeloste en afgevinkte meldingen blijven 30 dagen zichtbaar. Er gaat niets buiten het dashboard (geen e-mail of chat).
 
+## Pluginupdates
+
+Het dashboard levert de updates van de WOUTR-plugin aan alle klantsites op `GET /woutr-plugin/update.json` en `GET /woutr-plugin/woutr-plugin.zip` (productie: `https://wpdash.woutr.io/woutr-plugin/update.json`). Deze twee routes zijn openbaar, zonder inloggen; naast `/login` zijn het de enige die zonder inloggen werken. WordPress kan de plugin niet van wordpress.org halen (hij staat daar niet) en niet rechtstreeks uit GitHub (de repository is privé en een token hoort niet op klantsites).
+
+**Bron**: de GitHub-releases van `woutr-nl/WOUTR-WP` met tag `woutr-plugin-v<versie>` en het bestand `woutr-plugin.zip`; concepten en pre-releases tellen niet mee, en de hoogste versie wint. Het dashboard bewaart de informatie en de zip ongeveer 5 minuten in het geheugen, zodat veel sites samen de limieten van GitHub niet raken. Een nieuwe release bereikt de sites zonder redeploy of herstart van het dashboard. Is GitHub onbereikbaar, dan blijft de laatst bekende versie beschikbaar; is er nog geen bekend, dan antwoorden de routes met `503` en blijven de sites gewoon op hun versie.
+
+**Hoe een release de sites bereikt**: de plugin op elke site controleert `update.json` via het eigen updatemechanisme van WordPress en installeert een nieuwe versie automatisch in de achtergrond-updaterun van WordPress. Eén GitHub-release werkt dus **alle** pluginsites bij, zonder verdere actie. Er is geen geheim of sleutel per site nodig, en het dashboard houdt niet bij welke site wat ophaalt.
+
+**Terug naar een eerdere versie** kan alleen door een **hogere** versie met de herstelde code te publiceren: sites gaan nooit omlaag in versie.
+
+**Adres van het dashboard wijzigen**: het adres zit in elke pluginrelease (`Update URI`). Laat bij een verhuizing het oude adres blijven werken of met een 301 doorsturen naar het nieuwe, tot een pluginrelease met het nieuwe adres overal is uitgerold. Per site kan `WOUTR_UPDATE_URL` in `wp-config.php` het gat overbruggen (zie de README van WOUTR-WP).
+
+Het GitHub-token komt niet in deze antwoorden, en ze geven niets anders uit het dashboard prijs: geen thema-zips, geen andere releases.
+
 ## Lokaal draaien
 
 Met Docker en compose, vanuit de lokale broncode en zonder in te loggen bij `ghcr.io`. Bouw eerst zelf de image met de tag `local` en laat compose die gebruiken; omdat de image lokaal bestaat, haalt compose niets op. De variabelen worden geëxporteerd in de shell (geen `.env`):
@@ -137,7 +151,7 @@ Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. 
 
 ## Beveiliging
 
-- Eén beheerder, geen registratie. Alles behalve de loginpagina vereist inloggen.
+- Eén beheerder, geen registratie. Alles behalve de loginpagina en de twee pluginupdate-routes (zie *Pluginupdates*) vereist inloggen.
 - Na 5 mislukte inlogpogingen binnen 15 minuten wordt dat IP-adres 15 minuten geblokkeerd; elke mislukte poging wordt bovendien vertraagd.
 - Opgeslagen wachtwoorden worden nooit in formulieren getoond. Alleen de knop **Toon** haalt de ontsleutelde waarde op.
 - Waarden die de commando's als optie zouden lezen (beginnend met `-`) of verkeerd zouden lezen (regeleindes, een SSH-doel dat geen `gebruiker@host` is, een URL zonder http(s)) worden geweigerd. SMTP-instellingen kunnen alleen bij een blokthema.

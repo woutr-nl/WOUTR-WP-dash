@@ -12,6 +12,7 @@ import { getKeyInfo, rotateKey, ROTATE_BUSY } from './sshkey.js';
 import { createLimiter } from './limiter.js';
 import { openCount, listNotifications, dismiss } from './notifications.js';
 import { checkSite } from './health.js';
+import { getPluginUpdate } from './plugin-updates.js';
 import {
   ensureKeyInstalled, testConnection, messageFor, listUsers, listDomains, listDatabases, createDatabase,
   freeDbSuffix, dbSuffixBase, generateDbPassword, DA_MESSAGE, getCertificateInfo, requestLetsEncrypt,
@@ -32,8 +33,9 @@ const PLAIN = ['client_slug', 'theme_type', 'ssh_target', 'wp_path', 'site_url',
   'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name', 'da_username', 'da_domain'];
 const CHECK_LABEL = { reachable: 'Bereikbaar', cert: 'Certificaat', noindex: 'Indexering' };
 const CLIENTS_ERROR = 'De klantenlijst kon niet worden geladen uit WOUTR-WP (GitHub). Controleer GITHUB_TOKEN of probeer het later opnieuw.';
+const PLUGIN_UPDATE_ERROR = 'Pluginupdate-informatie is nu niet beschikbaar; probeer het later opnieuw.';
 
-const sha = (s) => createHash('sha256').update(String(s ?? '')).digest();
+const sha =(s) => createHash('sha256').update(String(s ?? '')).digest();
 const same = (a, b) => timingSafeEqual(sha(a), sha(b));
 
 const limiter = createLimiter();
@@ -84,6 +86,36 @@ export function createApp() {
   app.locals.fmtDate = (d) => (d ? new Date(d).toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam', dateStyle: 'short', timeStyle: 'medium' }) : '');
 
   app.use('/public', express.static(root + 'public'));
+
+  // Public plugin updates for client sites: ahead of session, body parsing, CSRF and the login wall.
+  app.get('/woutr-plugin/update.json', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    let u;
+    try {
+      u = await getPluginUpdate();
+    } catch {
+      return res.status(503).json({ error: PLUGIN_UPDATE_ERROR });
+    }
+    res.json({
+      slug: 'woutr-plugin',
+      version: u.version,
+      package: `${req.protocol}://${req.get('host')}/woutr-plugin/woutr-plugin.zip`,
+      ...(u.tested && { tested: u.tested }),
+      ...(u.requires && { requires: u.requires }),
+      ...(u.requires_php && { requires_php: u.requires_php }),
+    });
+  });
+  app.get('/woutr-plugin/woutr-plugin.zip', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    let u;
+    try {
+      u = await getPluginUpdate();
+    } catch {
+      return res.status(503).type('text').send(PLUGIN_UPDATE_ERROR);
+    }
+    res.type('application/zip').send(u.zip);
+  });
+
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieSession({
     name: 'session',
