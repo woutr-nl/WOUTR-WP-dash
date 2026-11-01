@@ -35,7 +35,7 @@ const CHECK_LABEL = { reachable: 'Bereikbaar', cert: 'Certificaat', noindex: 'In
 const CLIENTS_ERROR = 'De klantenlijst kon niet worden geladen uit WOUTR-WP (GitHub). Controleer GITHUB_TOKEN of probeer het later opnieuw.';
 const PLUGIN_UPDATE_ERROR = 'Pluginupdate-informatie is nu niet beschikbaar; probeer het later opnieuw.';
 
-const sha =(s) => createHash('sha256').update(String(s ?? '')).digest();
+const sha = (s) => createHash('sha256').update(String(s ?? '')).digest();
 const same = (a, b) => timingSafeEqual(sha(a), sha(b));
 
 const limiter = createLimiter();

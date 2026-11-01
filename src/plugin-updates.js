@@ -9,11 +9,14 @@ const TAG = /^woutr-plugin-v(\d+(?:\.\d+)*)$/;
 const ASSET = 'woutr-plugin.zip';
 const MAX_ASSET_SIZE = 50 * 1024 * 1024;
 const TTL = 5 * 60_000;
+const BACKOFF = 60_000;
 const auth = () => ({ Authorization: `Bearer ${config.githubToken}` });
 
 // ponytail: in-memory, single instance — same ceiling as the run lock.
 let cache = null; // { version, zip, tested, requires, requires_php, fetchedAt }
 let inflight = null;
+let nextAttemptAt = 0; // after a failed refresh: no new GitHub call before this moment
+let lastError = null;
 
 async function newestRelease() {
   // ponytail: first 100 releases only; paginate when the repo outgrows that.
@@ -73,19 +76,27 @@ async function refresh() {
 }
 
 const refreshOnce = () => (inflight ??= refresh()
-  .catch((e) => {
+  .then(() => {
+    nextAttemptAt = 0;
+    lastError = null;
+  }, (e) => {
     console.error(`Pluginupdate verversen mislukt: ${e.message}`);
+    lastError = e;
+    nextAttemptAt = Date.now() + BACKOFF;
     throw e;
   })
   .finally(() => { inflight = null; }));
 
 // Stale-while-revalidate: once anything is cached, an update check never waits on GitHub
 // and a GitHub failure leaves the last known version in place. Throws only without a cache.
+// After a failure at most one refresh per BACKOFF, so public requests can't drain the shared token.
 export async function getPluginUpdate() {
+  const backingOff = Date.now() < nextAttemptAt;
   if (!cache) {
+    if (backingOff) throw lastError;
     await refreshOnce();
     return cache;
   }
-  if (Date.now() - cache.fetchedAt >= TTL) refreshOnce().catch(() => {});
+  if (!backingOff && Date.now() - cache.fetchedAt >= TTL) refreshOnce().catch(() => {});
   return cache;
 }

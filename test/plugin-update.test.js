@@ -75,6 +75,7 @@ const get = (path, headers = {}) => realFetch(base + path, { redirect: 'manual',
 const info = async () => (await get('/woutr-plugin/update.json')).json();
 const zip = async () => Buffer.from(await (await get('/woutr-plugin/woutr-plugin.zip')).arrayBuffer());
 const crossTtl = () => mock.timers.tick(5 * 60_000 + 1);
+const crossBackoff = () => mock.timers.tick(60_000 + 1);
 const until = async (check) => {
   for (let i = 0; i < 200; i++) {
     if (await check()) return;
@@ -123,7 +124,22 @@ test('without a cache and with GitHub down both routes answer 503, without the t
   assert.equal(zipRes.status, 503);
   const zipBody = await zipRes.text();
   assert.ok(!zipBody.includes(TOKEN) && !zipBody.includes('Bearer'));
+});
+
+test('without a cache a failing GitHub is asked once per back-off window', async () => {
+  crossBackoff();
+  let seen = github.calls.length;
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await get('/woutr-plugin/update.json')).status, 503);
+    assert.equal((await get('/woutr-plugin/woutr-plugin.zip')).status, 503);
+  }
+  assert.equal(github.calls.length, seen + 1);
+  crossBackoff();
+  seen = github.calls.length;
+  assert.equal((await get('/woutr-plugin/update.json')).status, 503);
+  assert.equal(github.calls.length, seen + 1);
   github.fail = false;
+  crossBackoff();
 });
 
 test('update.json is public and names the highest real plugin release', async () => {
@@ -206,6 +222,17 @@ test('with GitHub failing the last known version keeps being served, without the
   const bytes = await zip();
   assert.deepEqual(bytes, zipOf('woutr-plugin-v2.2.0'));
   assert.ok(!bytes.includes(TOKEN));
+
+  // The failed refresh above started the back-off: one GitHub call per window here too.
+  const seen = github.calls.length;
+  for (let i = 0; i < 5; i++) assert.equal((await info()).version, '2.2.0');
+  await zip();
+  await sleep(20);
+  assert.equal(github.calls.length, seen);
+  crossBackoff();
+  for (let i = 0; i < 5; i++) assert.equal((await info()).version, '2.2.0');
+  await sleep(20);
+  assert.equal(github.calls.length, seen + 1);
   github.fail = false;
 });
 
