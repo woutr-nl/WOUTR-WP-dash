@@ -2,8 +2,9 @@
 // ephemeral port. The cache is module state, so the tests run in order and build on each other.
 import { test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync, mkdirSync } from 'node:fs';
+import { get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -173,6 +174,17 @@ test('the zip is public and comes from the API asset URL', async () => {
   const download = github.calls.find((c) => c.url === `${API}/releases/assets/woutr-plugin-v1.10.0`);
   assert.equal(download.accept, 'application/octet-stream');
   assert.equal(download.authorization, `Bearer ${TOKEN}`);
+});
+
+test('the zip carries the ETag hashed once for its version, and a match gets 304', async () => {
+  const etag = `"${createHash('sha256').update(zipOf('woutr-plugin-v1.10.0')).digest('base64url')}"`;
+  const res = await get('/woutr-plugin/woutr-plugin.zip');
+  assert.equal(res.headers.get('etag'), etag);
+  // node:http, as fetch adds Cache-Control: no-cache to a conditional request.
+  const status = await new Promise((resolve, reject) => {
+    httpGet(`${base}/woutr-plugin/woutr-plugin.zip`, { headers: { 'If-None-Match': etag } }, (r) => resolve(r.resume().statusCode)).on('error', reject);
+  });
+  assert.equal(status, 304);
 });
 
 test('within the TTL GitHub is not asked again', async () => {

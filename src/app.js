@@ -120,7 +120,7 @@ export function createApp() {
     } catch {
       return res.status(503).type('text').send(PLUGIN_UPDATE_ERROR);
     }
-    res.type('application/zip').send(u.zip);
+    res.set('ETag', u.etag).type('application/zip').send(u.zip);
   });
 
   app.use(express.urlencoded({ extended: false }));

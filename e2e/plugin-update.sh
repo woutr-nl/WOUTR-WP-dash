@@ -4,7 +4,9 @@
 # de nieuwste versie, en de achtergrondupdater downloadt en installeert de zip van het dashboard.
 # Alleen GitHub is nagemaakt (e2e/dashboard.js), met een release 99.0.0 die van plugin/ in WOUTR-WP
 # wordt gebouwd. Op de site wijst WOUTR_UPDATE_URL naar het dashboard, en mag WordPress die
-# downloadhost bereiken: in productie is het dashboard een publieke host, hier een privé-IP. De
+# downloadhost bereiken: in productie is het dashboard een publieke host, hier een privé-IP. De plugin
+# wil https; zoals de TLS-proxy in productie zet een mu-plugin https://dash:8080 om naar http met
+# X-Forwarded-Proto: https. De
 # controle na de update laadt de site via http://wordpress, zoals tools/wp-test/plugin-update-e2e.sh.
 #
 #   ../WOUTR-WP/tools/wp-test/setup-bricks.sh
@@ -43,7 +45,9 @@ cleanup() {
 	dc exec -T wordpress sh -c '
 		[ ! -f /tmp/wp-config.dash-e2e ] || mv /tmp/wp-config.dash-e2e wp-config.php
 		rm -f wp-content/mu-plugins/zz-dash-e2e.php
-		rm -rf wp-content/plugins/woutr-plugin && ln -sfn ../themes/woutr/plugin wp-content/plugins/woutr-plugin' || true
+		rm -rf wp-content/plugins/woutr-plugin && ln -sfn ../themes/woutr/plugin wp-content/plugins/woutr-plugin
+		# Anders houdt opcache de __FILE__ van de kopie.
+		echo "<?php opcache_reset();" > e2e-opcache.php && curl -s -o /dev/null http://localhost/e2e-opcache.php; rm -f e2e-opcache.php' || true
 	wp plugin activate woutr-plugin >/dev/null || true
 	reset_checks || true
 	rm -rf "$tmp"
@@ -75,12 +79,21 @@ echo 'ok  het dashboard draait'
 dc exec -T wordpress sh -c 'rm -f wp-content/plugins/woutr-plugin &&
 	cp -r wp-content/themes/woutr/plugin wp-content/plugins/woutr-plugin && chown -R www-data: wp-content/plugins/woutr-plugin
 	cp wp-config.php /tmp/wp-config.dash-e2e &&
-	sed -i "/^<?php/a define( \"WOUTR_UPDATE_URL\", \"http://dash:8080\" );" wp-config.php
+	sed -i "/^<?php/a define( \"WOUTR_UPDATE_URL\", \"https://dash:8080\" );" wp-config.php
 	mkdir -p wp-content/mu-plugins && cat > wp-content/mu-plugins/zz-dash-e2e.php && chown www-data: wp-content/mu-plugins/zz-dash-e2e.php' <<'EOF'
 <?php
 add_filter( 'http_request_host_is_external', function ( $external, $host ) {
 	return 'dash' === $host ? true : $external;
 }, 10, 2 );
+// The TLS proxy in front of the dashboard in production.
+add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+	if ( 0 !== strpos( $url, 'https://dash:8080/' ) ) {
+		return $pre;
+	}
+	$args['headers']                      = (array) ( $args['headers'] ?? array() );
+	$args['headers']['X-Forwarded-Proto'] = 'https';
+	return wp_safe_remote_request( 'http://' . substr( $url, 8 ), $args );
+}, 10, 3 );
 // WordPress's check after an update loads the site at home_url(), http://localhost:8080; inside the container that is http://wordpress.
 add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
 	if ( false !== strpos( $url, 'wp_scrape_key' ) && 0 === strpos( $url, home_url() ) ) {
@@ -99,7 +112,7 @@ echo '== De site vraagt het dashboard om updates'
 reset_checks
 wp eval 'wp_update_plugins();' >/dev/null
 same "$(offered new_version)" 99.0.0
-same "$(offered package)" http://dash:8080/woutr-plugin/woutr-plugin.zip
+same "$(offered package)" https://dash:8080/woutr-plugin/woutr-plugin.zip
 echo 'ok  WordPress biedt 99.0.0 aan, met de zip van het dashboard'
 check 'het dashboard haalde de release bij GitHub, met het token' sh -c "docker logs '$name' | grep -q '\"github\":\"https://api.github.com/repos/woutr-nl/WOUTR-WP/releases?per_page=100\".*\"auth\":true'"
 same "$(offered tested)" "$(sed -n 's/^[[:space:]]*\*[[:space:]]*Tested up to:[[:space:]]*//p' "$tmp/woutr-plugin.php" | head -1)"

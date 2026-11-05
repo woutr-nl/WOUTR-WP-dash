@@ -1,6 +1,7 @@
 // Newest WOUTR-plugin release for the public update routes, cached in memory: many sites
 // checking must not reach GitHub, and GitHub being down must not reach the sites.
 // Stands apart from the runner and the health check: no DB, no run lock, no checkout.
+import { createHash } from 'node:crypto';
 import config from './config.js';
 import { compareVersions } from './runs.js';
 
@@ -13,7 +14,7 @@ const BACKOFF = 60_000;
 const auth = () => ({ Authorization: `Bearer ${config.githubToken}` });
 
 // ponytail: in-memory, single instance — same ceiling as the run lock.
-let cache = null; // { version, zip, tested, requires, requires_php, fetchedAt }
+let cache = null; // { version, zip, etag, tested, requires, requires_php, fetchedAt }
 let inflight = null;
 let nextAttemptAt = 0; // after a failed refresh: no new GitHub call before this moment
 let lastError = null;
@@ -72,7 +73,9 @@ async function refresh() {
   }
   const zip = await downloadZip(asset);
   const headers = await pluginHeaders(version);
-  cache = { version, zip, ...headers, fetchedAt: Date.now() };
+  // Hashed once per version: Express would otherwise hash the whole zip on every request.
+  const etag = `"${createHash('sha256').update(zip).digest('base64url')}"`;
+  cache = { version, zip, etag, ...headers, fetchedAt: Date.now() };
 }
 
 const refreshOnce = () => (inflight ??= refresh()
