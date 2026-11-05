@@ -1,6 +1,7 @@
 <%
   const block = site.theme_type !== 'bricks';
-  const ENV_LABEL = { WP_DB_PASS: 'databasewachtwoord (WP_DB_PASS)', WOUTR_SMTP_PASS: 'SMTP-wachtwoord (WOUTR_SMTP_PASS)', BRICKS_LICENSE_KEY: 'Bricks-licentiesleutel (BRICKS_LICENSE_KEY)' };
+  const ENV_LABEL = { WP_DB_PASS: 'databasewachtwoord (WP_DB_PASS)', WOUTR_SMTP_PASS: 'SMTP-wachtwoord (WOUTR_SMTP_PASS)', BRICKS_LICENSE_KEY: 'Bricks-licentiesleutel (BRICKS_LICENSE_KEY)', WOUTR_RESEND_API_KEY: 'Resend API-sleutel (WOUTR_RESEND_API_KEY)' };
+  const MAIL_LABEL = { smtp: 'SMTP', resend: 'Resend' };
   const select = (name, label, versions, current) => { %>
     <label><%= label %>
       <select name="<%= name %>" data-installed>
@@ -30,14 +31,16 @@
   <% if (action === 'deploy') { %>
     <fieldset>
       <legend>Instellingen</legend>
-      <p>Gebruikt de gegevens van de site<%= block && site.smtp_host ? ', inclusief de SMTP-instellingen' : '' %>.</p>
+      <p>Gebruikt de gegevens van de site<%= MAIL_LABEL[site.mail_mode] ? `, inclusief de ${MAIL_LABEL[site.mail_mode]}-instellingen` : '' %>.</p>
       <p>Geheimen (alleen via omgevingsvariabelen): <%= envNames.length ? envNames.map((n) => ENV_LABEL[n]).join(', ') : 'geen' %>.</p>
       <p>Staat er al een site met inhoud, dan stopt de deploy en vraagt het dashboard om bevestiging voordat er iets gewist wordt.</p>
     </fieldset>
-  <% } else if (action === 'update' && block && site.smtp_host) { %>
+  <% } else if (action === 'update' && site.mail_mode !== 'none') { %>
     <fieldset>
-      <legend>SMTP</legend>
-      <label class="inline"><input type="checkbox" name="apply_smtp" value="1"> SMTP-instellingen opnieuw toepassen</label>
+      <legend>Mail</legend>
+      <label class="inline"><input type="checkbox" name="apply_mail" value="1"> Mailinstellingen (<%= site.mail_mode === 'resend' ? 'Resend' : 'SMTP' %>) opnieuw toepassen</label>
+      <% if (envNames.length) { %><p>Geheimen (alleen via omgevingsvariabelen): <%= envNames.map((n) => ENV_LABEL[n]).join(', ') %>.</p><% } %>
+      <% if (!block) { %><p class="notice">Op een Bricks-site zonder de WOUTR-plugin mislukt dit met de melding van het commando; een nieuwe deploy installeert de plugin.</p><% } %>
     </fieldset>
   <% } else if (action === 'live') { %>
     <fieldset>
@@ -46,7 +49,7 @@
       <ul>
         <li>HTTPS werkt (<code>check_https</code>)</li>
         <li>Debugmodus staat uit (<code>check_debug</code>)</li>
-        <li>SMTP is ingesteld (<code>check_smtp</code><%= block ? '' : ', niet gecontroleerd bij Bricks' %>)</li>
+        <li>Mailbezorging is ingesteld — SMTP of Resend (<code>check_smtp</code><%= block ? '' : ', op een Bricks-site zonder de WOUTR-plugin niet gecontroleerd' %>)</li>
       </ul>
       <p>Slaagt alles, dan gaat de indexering aan. Mislukt een controle, dan blijft de indexering uit.</p>
     </fieldset>

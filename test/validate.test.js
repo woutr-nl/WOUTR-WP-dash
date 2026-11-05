@@ -10,6 +10,7 @@ const base = {
   site_url: 'https://www.acme.nl',
   site_title: 'Acme',
   admin_email: 'web@acme.nl',
+  mail_mode: 'none',
 };
 
 test('happy path applies defaults', () => {
@@ -67,14 +68,15 @@ test('db name and user go together', () => {
   assert.deepEqual(validateSite({ ...base, db_name: 'wp', db_user: 'wpu' }).errors, {});
 });
 
-test('SMTP on a Bricks site rejected', () => {
+test('a Bricks site takes SMTP and Resend settings like a block site', () => {
   const bricks = { ...base, theme_type: 'bricks' };
-  for (const [f, v] of [['smtp_host', 'mail.acme.nl'], ['smtp_port', '465'], ['smtp_encryption', 'ssl'], ['smtp_pass', 'x']]) {
-    assert.match(validateSite({ ...bricks, [f]: v }).errors.smtp, /Bricks/, f);
-  }
-  const ok = validateSite(bricks);
-  assert.deepEqual(ok.errors, {});
-  assert.equal(ok.values.smtp_pass, null, 'stored SMTP secret is cleared on Bricks');
+  const smtp = validateSite({ ...bricks, mail_mode: 'smtp', smtp_host: 'mail.acme.nl', smtp_port: '465', smtp_encryption: 'ssl', smtp_pass: 'x' });
+  assert.deepEqual(smtp.errors, {});
+  assert.equal(smtp.values.smtp_host, 'mail.acme.nl');
+  assert.equal(smtp.values.smtp_pass, 'x');
+  const resend = validateSite({ ...bricks, mail_mode: 'resend', resend_from: 'web@acme.nl', resend_api_key: 're_x' });
+  assert.deepEqual(resend.errors, {});
+  assert.equal(validateSite(bricks).values.smtp_pass, undefined, 'a stored SMTP password is kept');
 });
 
 test('bad SMTP port and encryption', () => {
@@ -90,13 +92,40 @@ test('secret semantics: blank keeps, value replaces, wissen clears', () => {
   assert.equal(validateSite({ ...base, smtp_pass_clear: '1' }).values.smtp_pass, null);
 });
 
-test('bricks with a stored SMTP password is refused unless it is cleared', () => {
-  const bricks = { ...base, theme_type: 'bricks' };
-  assert.match(validateSite(bricks, { hasSmtpPass: true }).errors.smtp, /SMTP-wachtwoord/);
-  const cleared = validateSite({ ...bricks, smtp_pass_clear: '1' }, { hasSmtpPass: true });
-  assert.deepEqual(cleared.errors, {});
-  assert.equal(cleared.values.smtp_pass, null);
-  assert.deepEqual(validateSite(bricks).errors, {});
+test('mail_mode: Geen, SMTP or Resend', () => {
+  for (const m of [undefined, '', 'mailgun']) assert.equal(validateSite({ ...base, mail_mode: m }).errors.mail_mode, 'Kies Geen, SMTP of Resend.', String(m));
+  assert.equal(validateSite({ ...base, mail_mode: ' none ' }).values.mail_mode, 'none');
+  assert.equal(validateSite({ ...base, mail_mode: 'smtp' }).errors.smtp_host, 'Verplicht veld.');
+  assert.deepEqual(validateSite({ ...base, mail_mode: 'smtp', smtp_host: 'mail.acme.nl' }).errors, {});
+});
+
+test('resend: from address and a key are required', () => {
+  const resend = { ...base, mail_mode: 'resend', resend_from: 'web@acme.nl', resend_from_name: 'Acme', resend_api_key: 're_x' };
+  const ok = validateSite(resend);
+  assert.deepEqual(ok.errors, {});
+  assert.equal(ok.values.resend_api_key, 're_x');
+  assert.equal(ok.values.resend_from_name, 'Acme');
+  assert.equal(validateSite({ ...resend, resend_from: '' }).errors.resend_from, 'Verplicht veld.');
+  assert.equal(validateSite({ ...resend, resend_from: 'geen-adres' }).errors.resend_from, 'Geen geldig e-mailadres.');
+  assert.equal(validateSite({ ...resend, resend_api_key: '' }).errors.resend_api_key, 'Verplicht veld.');
+  const kept = validateSite({ ...resend, resend_api_key: '' }, { hasResendKey: true });
+  assert.deepEqual(kept.errors, {});
+  assert.equal(kept.values.resend_api_key, undefined);
+  assert.equal(validateSite({ ...resend, resend_api_key_clear: '1' }, { hasResendKey: true }).errors.resend_api_key, 'Verplicht veld.');
+  assert.equal(validateSite({ ...base, resend_api_key_clear: '1' }, { hasResendKey: true }).values.resend_api_key, null);
+  assert.ok(validateSite({ ...base, resend_from: '-x@acme.nl' }).errors.resend_from);
+});
+
+test('the inactive mail option keeps its values', () => {
+  const { values, errors } = validateSite({ ...base, mail_mode: 'resend', resend_from: 'web@acme.nl', resend_api_key: 're_x',
+    smtp_host: 'mail.acme.nl', smtp_user: 'u', smtp_pass: 'p' });
+  assert.deepEqual(errors, {});
+  assert.equal(values.smtp_host, 'mail.acme.nl');
+  assert.equal(values.smtp_user, 'u');
+  assert.equal(values.smtp_pass, 'p');
+  const none = validateSite({ ...base, resend_from: 'web@acme.nl', resend_from_name: 'Acme' });
+  assert.deepEqual(none.errors, {});
+  assert.equal(none.values.resend_from, 'web@acme.nl');
 });
 
 test('da_username: optional, DirectAdmin username rules', () => {

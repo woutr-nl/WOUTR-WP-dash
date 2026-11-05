@@ -130,7 +130,7 @@ function post(path, form = {}) {
 let n = 0;
 const siteForm = (extra = {}) => ({
   client_slug: 'acme', theme_type: 'block', ssh_target: 'deploy@255.255.255.255', wp_path: '/var/www',
-  site_url: `https://acme${++n}.nl`, site_title: 'Acme', admin_email: 'a@acme.nl', ...extra,
+  site_url: `https://acme${++n}.nl`, site_title: 'Acme', admin_email: 'a@acme.nl', mail_mode: 'none', ...extra,
 });
 const sites = async () => (await db.query('SELECT id, site_url, da_username, da_key_state FROM sites ORDER BY id')).rows;
 const blobs = (user) => Object.values(accounts[user].keys).map((k) => keyBlob(k.key));
@@ -251,12 +251,10 @@ test('the form offers the client folders; the theme type comes from style.css, n
   assert.match(html, /<option value="raar" data-theme="" disabled\s*>raar \(thematype onbekend\)/);
   assert.doesNotMatch(html, /value="README.md"/);
 
-  // Bricks slug + posted 'block' + SMTP: stored as bricks, so the SMTP rule applies.
-  const smtp = await post('/sites', siteForm({ client_slug: 'innerhaven-bricks', theme_type: 'block', smtp_host: 'mail.x.nl' }));
-  assert.equal(smtp.status, 422);
-  assert.match(await smtp.text(), /niet mogelijk bij een Bricks-thema/);
-  assert.equal((await post('/sites', siteForm({ client_slug: 'innerhaven-bricks', theme_type: 'block' }))).status, 302);
+  // Bricks slug + posted 'block': stored as bricks; SMTP settings are fine there too.
+  assert.equal((await post('/sites', siteForm({ client_slug: 'innerhaven-bricks', theme_type: 'block', mail_mode: 'smtp', smtp_host: 'mail.x.nl' }))).status, 302);
   assert.equal((await onlySite()).theme_type, 'bricks');
+  assert.equal((await onlySite()).mail_mode, 'smtp');
   await db.query('DELETE FROM sites');
   assert.equal((await post('/sites', siteForm({ client_slug: 'vensa', theme_type: 'bricks' }))).status, 302);
   assert.equal((await onlySite()).theme_type, 'block');
@@ -601,4 +599,58 @@ test('run page script: a successful SSL request unhides the go-live-again form; 
   assert.equal(issues().length, 1);
   assert.equal(r.el('ssl_retry_live').hidden, false);
   await db.query('DELETE FROM runs WHERE site_id = $1', [s.id]);
+});
+
+test('mail: Resend per site — saved encrypted, never shown again, switching keeps the other option', async () => {
+  const KEY = 're_secret_site_key';
+  const fresh = await (await get('/sites/new')).text();
+  assert.match(fresh, /name="mail_mode" value="none" checked/);
+  assert.match(fresh, /zonder de plugin kan ze nog niet overnemen/);
+
+  const missing = await post('/sites', siteForm({ mail_mode: 'resend', resend_from: 'geen-adres' }));
+  assert.equal(missing.status, 422);
+  const html422 = await missing.text();
+  assert.match(html422, /name="resend_from"[^>]*><span class="error">Geen geldig e-mailadres\./);
+  assert.match(html422, /name="resend_api_key"[^>]*>\s*<span class="error">Verplicht veld\./);
+  assert.match(html422, /name="mail_mode" value="resend" checked/);
+
+  assert.equal((await post('/sites', siteForm({ mail_mode: 'resend', resend_from: 'web@acme.nl', resend_api_key: KEY, smtp_host: 'mail.acme.nl' }))).status, 302);
+  const s = await onlySite();
+  assert.equal(s.mail_mode, 'resend');
+  assert.ok(s.resend_api_key_enc && !s.resend_api_key_enc.includes(KEY));
+  assert.equal(decrypt(s.resend_api_key_enc, config.encryptionKey), KEY);
+
+  const edit = await (await get(`/sites/${s.id}/edit`)).text();
+  assert.ok(!edit.includes(KEY));
+  assert.doesNotMatch(edit, /reveal\/resend_api_key/);
+  assert.match(edit, /name="resend_api_key_clear"/);
+  assert.match(edit, /tot het domein van deze site is beperkt; het domein moet in Resend geverifieerd zijn/);
+  assert.match(edit, /name="mail_mode" value="resend" checked/);
+  assert.equal((await post(`/sites/${s.id}/reveal/resend_api_key`)).status, 404);
+
+  // The run form names the secret and the option.
+  const deploy = await (await get(`/sites/${s.id}/run/deploy`)).text();
+  assert.match(deploy, /inclusief de Resend-instellingen/);
+  assert.match(deploy, /Resend API-sleutel \(WOUTR_RESEND_API_KEY\)/);
+  const update = await (await get(`/sites/${s.id}/run/update`)).text();
+  assert.match(update, /<input type="checkbox" name="apply_mail" value="1"> Mailinstellingen \(Resend\) opnieuw toepassen/);
+  assert.match(await (await get(`/sites/${s.id}/run/live`)).text(), /Mailbezorging is ingesteld — SMTP of Resend/);
+
+  // Clearing the key is only possible once Resend is no longer chosen.
+  const same = { site_url: s.site_url, resend_from: 'web@acme.nl', smtp_host: 'mail.acme.nl' };
+  assert.equal((await post(`/sites/${s.id}`, siteForm({ ...same, mail_mode: 'resend', resend_api_key_clear: '1' }))).status, 422);
+  assert.equal((await post(`/sites/${s.id}`, siteForm({ ...same, mail_mode: 'smtp' }))).status, 302);
+  let r = await row(s.id);
+  assert.equal(r.mail_mode, 'smtp');
+  assert.equal(r.resend_from, 'web@acme.nl');
+  assert.equal(r.resend_api_key_enc, s.resend_api_key_enc);
+  assert.match(await (await get(`/sites/${s.id}/edit`)).text(), /name="mail_mode" value="smtp" checked/);
+  assert.match(await (await get(`/sites/${s.id}/run/update`)).text(), /Mailinstellingen \(SMTP\) opnieuw toepassen/);
+  assert.equal((await post(`/sites/${s.id}`, siteForm({ ...same, mail_mode: 'resend' }))).status, 302);
+  assert.equal((await row(s.id)).mail_mode, 'resend');
+  assert.equal((await post(`/sites/${s.id}`, siteForm({ ...same, mail_mode: 'none', resend_api_key_clear: '1' }))).status, 302);
+  r = await row(s.id);
+  assert.equal(r.resend_api_key_enc, null);
+  assert.equal(r.smtp_host, 'mail.acme.nl');
+  assert.doesNotMatch(await (await get(`/sites/${s.id}/run/update`)).text(), /apply_mail/);
 });
