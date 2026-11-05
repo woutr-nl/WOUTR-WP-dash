@@ -88,5 +88,19 @@ export async function initDb() {
     -- One unresolved notification per site per problem; a dismissed-but-unresolved row
     -- still blocks re-creation of a health problem until it has passed once (resolved_at set).
     CREATE UNIQUE INDEX IF NOT EXISTS notifications_open_idx ON notifications (site_id, kind) WHERE resolved_at IS NULL;
+    -- One-time backfill: afterwards a site may keep SMTP values with mail_mode 'none'.
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'sites' AND column_name = 'mail_mode') THEN
+        ALTER TABLE sites ADD COLUMN mail_mode text;
+        UPDATE sites SET mail_mode = CASE WHEN smtp_host IS NOT NULL THEN 'smtp' ELSE 'none' END;
+        ALTER TABLE sites ALTER COLUMN mail_mode SET NOT NULL;
+        ALTER TABLE sites ALTER COLUMN mail_mode SET DEFAULT 'none';
+        ALTER TABLE sites ADD CONSTRAINT sites_mail_mode_check CHECK (mail_mode IN ('none','smtp','resend'));
+      END IF;
+    END $$;
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS resend_from text;
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS resend_from_name text;
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS resend_api_key_enc text;
   `);
 }

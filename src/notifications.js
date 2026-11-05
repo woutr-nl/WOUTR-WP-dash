@@ -42,13 +42,15 @@ export async function purgeOld() {
   await pool.query(`DELETE FROM notifications WHERE resolved_at IS NOT NULL AND LEAST(resolved_at, dismissed_at) < now() - interval '30 days'`);
 }
 
-export async function runFinished(siteId, action, runId, status) {
+// reason: the run's (scrubbed) error line, shown with a failed run.
+export async function runFinished(siteId, action, runId, status, reason) {
   const kind = `run:${action}`;
   if (status === 'success') return resolve(siteId, kind);
   if (!OUTCOME_LABEL[status]) return;
   // A new failed run is a new event: a dismissed leftover must not swallow it.
   await pool.query('UPDATE notifications SET resolved_at = now() WHERE site_id = $1 AND kind = $2 AND resolved_at IS NULL AND dismissed_at IS NOT NULL', [siteId, kind]);
-  await notify(siteId, kind, 'problem', `${ACTION_LABEL[action]} ${OUTCOME_LABEL[status]} (run #${runId})`, runId);
+  const message = `${ACTION_LABEL[action]} ${OUTCOME_LABEL[status]} (run #${runId})`;
+  await notify(siteId, kind, 'problem', reason && status === 'failed' ? `${message}: ${reason}` : message, runId);
 }
 
 // A run still 'running' at boot was cut off by a restart.

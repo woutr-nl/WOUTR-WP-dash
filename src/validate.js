@@ -1,5 +1,5 @@
 // Pure validation of the site form. Returns { values, errors } where errors maps
-// field -> Dutch message. Secrets: values.db_pass / values.smtp_pass are
+// field -> Dutch message. Secrets: values.db_pass / smtp_pass / resend_api_key are
 // undefined (keep stored), null (clear stored) or a string (replace).
 
 const CONTROL = /[\x00-\x1f\x7f]/;
@@ -14,12 +14,12 @@ const TEXT_FIELDS = [
   'client_slug', 'theme_type', 'ssh_target', 'wp_path', 'site_url', 'site_title',
   'admin_email', 'admin_user', 'db_name', 'db_user', 'db_host',
   'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name',
+  'resend_from', 'resend_from_name', 'mail_mode',
   'da_username', 'da_domain',
 ];
-const SMTP_FIELDS = ['smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_user', 'smtp_from', 'smtp_from_name'];
 
-// existing.hasSmtpPass: the site already has a stored SMTP password.
-export function validateSite(input, { hasSmtpPass = false } = {}) {
+// hasResendKey: the site already has a stored Resend API key.
+export function validateSite(input, { hasResendKey = false } = {}) {
   const values = {};
   const errors = {};
   const err = (field, msg) => { errors[field] ??= msg; };
@@ -75,14 +75,14 @@ export function validateSite(input, { hasSmtpPass = false } = {}) {
 
   values.db_pass = secret(input, 'db_pass', err);
   values.smtp_pass = secret(input, 'smtp_pass', err);
+  values.resend_api_key = secret(input, 'resend_api_key', err);
 
-  if (values.theme_type === 'bricks') {
-    const used = SMTP_FIELDS.some((f) => values[f]) || typeof values.smtp_pass === 'string';
-    if (used) err('smtp', 'SMTP-instellingen zijn niet mogelijk bij een Bricks-thema.');
-    else if (hasSmtpPass && values.smtp_pass !== null) {
-      err('smtp', 'Deze site heeft nog een opgeslagen SMTP-wachtwoord. Kies eerst Blokthema, vink bij het SMTP-wachtwoord "Wissen" aan en sla op; kies daarna Bricks.');
-    }
-    values.smtp_pass = null; // never keep an SMTP secret on a Bricks site
+  // Only the chosen option is required; the other one's values stay stored but unsent.
+  if (!['none', 'smtp', 'resend'].includes(values.mail_mode)) err('mail_mode', 'Kies Geen, SMTP of Resend.');
+  if (values.mail_mode === 'smtp') need('smtp_host');
+  if (values.mail_mode === 'resend') {
+    need('resend_from');
+    if (values.resend_api_key === null || (values.resend_api_key === undefined && !hasResendKey)) err('resend_api_key', 'Verplicht veld.');
   }
 
   if (values.smtp_port) {
@@ -94,8 +94,8 @@ export function validateSite(input, { hasSmtpPass = false } = {}) {
   values.smtp_encryption ||= 'tls';
   if (!['none', 'ssl', 'tls'].includes(values.smtp_encryption)) err('smtp_encryption', 'Kies none, ssl of tls.');
 
-  if (values.smtp_from && !EMAIL.test(values.smtp_from)) err('smtp_from', 'Geen geldig e-mailadres.');
-  for (const f of ['smtp_host', 'smtp_user', 'smtp_from', 'smtp_from_name']) values[f] ||= null;
+  for (const f of ['smtp_from', 'resend_from']) if (values[f] && !EMAIL.test(values[f])) err(f, 'Geen geldig e-mailadres.');
+  for (const f of ['smtp_host', 'smtp_user', 'smtp_from', 'smtp_from_name', 'resend_from', 'resend_from_name']) values[f] ||= null;
 
   return { values, errors };
 }

@@ -9,9 +9,11 @@ const block = {
   site_url: 'https://www.acme.nl', site_title: 'Acme BV', admin_email: 'web@acme.nl', admin_user: 'beheer',
   db_name: null, db_user: null, db_host: 'localhost', db_pass_enc: 'v1:x',
   smtp_host: null, smtp_port: 587, smtp_encryption: 'tls', smtp_user: null, smtp_from: null, smtp_from_name: null, smtp_pass_enc: null,
+  resend_from: null, resend_from_name: null, resend_api_key_enc: null,
 };
 const withSmtp = { ...block, smtp_host: 'smtp.acme.nl', smtp_user: 'mail@acme.nl', smtp_from: 'web@acme.nl', smtp_from_name: 'Acme', smtp_pass_enc: 'v1:y' };
 const bricks = { ...block, theme_type: 'bricks' };
+const withResend = { ...withSmtp, resend_from: 'web@acme.nl', resend_from_name: 'Acme', resend_api_key_enc: 'v1:z' };
 const has = (args, flag) => args.includes(flag);
 
 test('deploy block: base args, no versions, no smtp', () => {
@@ -22,7 +24,7 @@ test('deploy block: base args, no versions, no smtp', () => {
 });
 
 test('deploy block with versions, smtp and db flags', () => {
-  const args = buildArgs('deploy', { ...withSmtp, db_name: 'wp', db_user: 'wpu' }, { version: '1.2.0', parent_version: '2.0.1' });
+  const args = buildArgs('deploy', { ...withSmtp, db_name: 'wp', db_user: 'wpu' }, { version: '1.2.0', parent_version: '2.0.1', mail: 'smtp' });
   assert.deepEqual(args.slice(args.indexOf('--db-name'), args.indexOf('--db-name') + 6), ['--db-name', 'wp', '--db-user', 'wpu', '--db-host', 'localhost']);
   assert.equal(args[args.indexOf('--version') + 1], '1.2.0');
   assert.equal(args[args.indexOf('--parent-version') + 1], '2.0.1');
@@ -31,11 +33,33 @@ test('deploy block with versions, smtp and db flags', () => {
   assert.ok(!has(args, '--overwrite'));
 });
 
-test('deploy bricks never gets --parent-version or --smtp-*', () => {
-  const args = buildArgs('deploy', { ...bricks, smtp_host: 'smtp.x' }, { version: '1.0.0', parent_version: '2.0.0' });
+test('deploy bricks never gets --parent-version; mail flags only with options.mail', () => {
+  const site = { ...bricks, smtp_host: 'smtp.x' };
+  const args = buildArgs('deploy', site, { version: '1.0.0', parent_version: '2.0.0' });
   assert.ok(has(args, '--version'));
   assert.ok(!has(args, '--parent-version'));
-  assert.ok(!args.some((a) => a.startsWith('--smtp')));
+  assert.ok(!args.some((a) => a.startsWith('--smtp') || a.startsWith('--resend')));
+  const smtp = buildArgs('deploy', site, { mail: 'smtp' });
+  assert.equal(smtp[smtp.indexOf('--smtp-host') + 1], 'smtp.x');
+});
+
+test('resend: only --resend-* flags, never with --smtp-*, the key never in argv', () => {
+  for (const a of ['deploy', 'update']) {
+    const args = buildArgs(a, withResend, { mail: 'resend' });
+    assert.deepEqual(args.slice(args.indexOf('--resend-from')), ['--resend-from', 'web@acme.nl', '--resend-from-name', 'Acme']);
+    assert.ok(!args.some((x) => x.startsWith('--smtp') || x.startsWith('v1:')), a);
+    assert.ok(!buildArgs(a, withResend, { mail: 'smtp' }).some((x) => x.startsWith('--resend')), a);
+    assert.ok(!buildArgs(a, withResend, {}).some((x) => x.startsWith('--resend') || x.startsWith('--smtp')), a);
+  }
+  const noName = buildArgs('update', { ...withResend, resend_from_name: null, theme_type: 'bricks' }, { mail: 'resend' });
+  assert.deepEqual(noName.slice(noName.indexOf('--resend-from')), ['--resend-from', 'web@acme.nl']);
+});
+
+test('legacy options (smtp / apply_smtp) still apply SMTP', () => {
+  assert.ok(has(buildArgs('deploy', withSmtp, { smtp: true }), '--smtp-host'));
+  assert.ok(has(buildArgs('update', withSmtp, { apply_smtp: true }), '--smtp-host'));
+  assert.ok(!has(buildArgs('update', withSmtp, { apply_smtp: false }), '--smtp-host'));
+  assert.deepEqual(buildEnvNames('deploy', withSmtp, { smtp: true }), ['WP_DB_PASS', 'WOUTR_SMTP_PASS']);
 });
 
 test('--overwrite / --force only when the option is exactly true', () => {
@@ -46,25 +70,32 @@ test('--overwrite / --force only when the option is exactly true', () => {
   assert.ok(!has(buildArgs('update', block, { overwrite: true, force: true }), '--overwrite'));
 });
 
-test('update: smtp only with apply_smtp; no deploy flags', () => {
+test('update: smtp only on request; no deploy flags', () => {
   const plain = buildArgs('update', withSmtp, { version: '1.0.0' });
   assert.deepEqual(plain, ['acme', '--ssh', 'deploy@acme.nl', '--path', '/home/deploy/www', '--version', '1.0.0']);
-  assert.ok(has(buildArgs('update', withSmtp, { apply_smtp: true }), '--smtp-host'));
+  assert.ok(has(buildArgs('update', withSmtp, { mail: 'smtp' }), '--smtp-host'));
 });
 
 test('no secret ever appears in argv', () => {
   for (const a of ['deploy', 'update', 'live']) {
-    const args = buildArgs(a, withSmtp, { apply_smtp: true });
+    const args = buildArgs(a, withResend, { mail: 'smtp' });
     assert.ok(!args.some((x) => x.startsWith('v1:')));
   }
 });
 
 test('buildEnvNames per action', () => {
   assert.deepEqual(buildEnvNames('deploy', block), ['WP_DB_PASS']);
-  assert.deepEqual(buildEnvNames('deploy', withSmtp), ['WP_DB_PASS', 'WOUTR_SMTP_PASS']);
+  assert.deepEqual(buildEnvNames('deploy', withSmtp), ['WP_DB_PASS']);
+  assert.deepEqual(buildEnvNames('deploy', withSmtp, { mail: 'smtp' }), ['WP_DB_PASS', 'WOUTR_SMTP_PASS']);
+  assert.deepEqual(buildEnvNames('deploy', withResend, { mail: 'resend' }), ['WP_DB_PASS', 'WOUTR_RESEND_API_KEY']);
+  assert.deepEqual(buildEnvNames('deploy', { ...bricks, resend_api_key_enc: 'v1:z' }, { mail: 'resend' }), ['WP_DB_PASS', 'BRICKS_LICENSE_KEY', 'WOUTR_RESEND_API_KEY']);
+  assert.deepEqual(buildEnvNames('update', withResend, { mail: 'resend' }), ['WOUTR_RESEND_API_KEY']);
+  assert.deepEqual(buildEnvNames('update', withResend, { mail: 'smtp' }), ['WOUTR_SMTP_PASS']);
+  assert.deepEqual(buildEnvNames('update', withResend, {}), []);
+  assert.deepEqual(buildEnvNames('live', withResend, { mail: 'resend' }), []);
   assert.deepEqual(buildEnvNames('deploy', bricks), ['WP_DB_PASS', 'BRICKS_LICENSE_KEY']);
   assert.deepEqual(buildEnvNames('update', withSmtp, {}), []);
-  assert.deepEqual(buildEnvNames('update', withSmtp, { apply_smtp: true }), ['WOUTR_SMTP_PASS']);
+  assert.deepEqual(buildEnvNames('update', withSmtp, { mail: 'smtp' }), ['WOUTR_SMTP_PASS']);
   assert.deepEqual(buildEnvNames('live', withSmtp, { force: true }), []);
 });
 
