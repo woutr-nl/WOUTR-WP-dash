@@ -76,6 +76,11 @@ let app, base;
 const get = (path, headers = {}) => realFetch(base + path, { redirect: 'manual', headers });
 const info = async () => (await get('/woutr-plugin/update.json')).json();
 const zip = async () => Buffer.from(await (await get('/woutr-plugin/woutr-plugin.zip')).arrayBuffer());
+const etagOf = (tag) => `"${createHash('sha256').update(zipOf(tag)).digest('base64url')}"`;
+// node:http, as fetch adds Cache-Control: no-cache to a conditional request.
+const conditionalZip = (etag) => new Promise((resolve, reject) => {
+  httpGet(`${base}/woutr-plugin/woutr-plugin.zip`, { headers: { 'If-None-Match': etag } }, (r) => resolve(r.resume().statusCode)).on('error', reject);
+});
 const crossTtl = () => mock.timers.tick(5 * 60_000 + 1);
 const crossBackoff = () => mock.timers.tick(60_000 + 1);
 const until = async (check) => {
@@ -177,14 +182,9 @@ test('the zip is public and comes from the API asset URL', async () => {
 });
 
 test('the zip carries the ETag hashed once for its version, and a match gets 304', async () => {
-  const etag = `"${createHash('sha256').update(zipOf('woutr-plugin-v1.10.0')).digest('base64url')}"`;
   const res = await get('/woutr-plugin/woutr-plugin.zip');
-  assert.equal(res.headers.get('etag'), etag);
-  // node:http, as fetch adds Cache-Control: no-cache to a conditional request.
-  const status = await new Promise((resolve, reject) => {
-    httpGet(`${base}/woutr-plugin/woutr-plugin.zip`, { headers: { 'If-None-Match': etag } }, (r) => resolve(r.resume().statusCode)).on('error', reject);
-  });
-  assert.equal(status, 304);
+  assert.equal(res.headers.get('etag'), etagOf('woutr-plugin-v1.10.0'));
+  assert.equal(await conditionalZip(etagOf('woutr-plugin-v1.10.0')), 304);
 });
 
 test('within the TTL GitHub is not asked again', async () => {
@@ -210,6 +210,12 @@ test('headers absent from the plugin file are left out', async () => {
   github.releases.push(release('woutr-plugin-v2.0.0'));
   await expectRefreshTo('2.0.0');
   assert.deepEqual(Object.keys(await info()).sort(), ['package', 'slug', 'version']);
+  // The new release brings a new ETag: the old one must not turn the update into a 304.
+  const etag = (await get('/woutr-plugin/woutr-plugin.zip')).headers.get('etag');
+  assert.equal(etag, etagOf('woutr-plugin-v2.0.0'));
+  assert.notEqual(etag, etagOf('woutr-plugin-v1.10.0'));
+  assert.equal(await conditionalZip(etagOf('woutr-plugin-v1.10.0')), 200);
+  assert.equal(await conditionalZip(etag), 304);
 });
 
 test('a missing plugin file does not stop the update', async () => {
