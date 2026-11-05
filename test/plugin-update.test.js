@@ -46,6 +46,7 @@ const github = {
     release('woutr-plugin-v9.0.0', { draft: true }),
     release('woutr-plugin-v8.0.0', { prerelease: true }),
     release('woutr-plugin-v6.0.0-rc1'),
+    release('woutr-plugin-v9'), // one segment: the plugin rejects that version
     release('x-v9.9.9'),
     release('woutr-v9.9.9'),
     release('woutr-plugin-v7.0.0', { asset: 'iets-anders.zip' }),
