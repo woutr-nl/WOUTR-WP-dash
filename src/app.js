@@ -6,7 +6,7 @@ import config from './config.js';
 import { pool } from './db.js';
 import { encrypt, decrypt } from './crypto.js';
 import { validateSite, validateDaConnection, DA_USER } from './validate.js';
-import { ACTIONS, buildEnvNames, isRollback } from './runs.js';
+import { ACTIONS, buildEnvNames, isRollback, mailOf } from './runs.js';
 import { startRun, isBusy, anyBusy, listReleases, listClients, testSshConnection, createWpLoginUrl } from './runner.js';
 import { getKeyInfo, rotateKey, ROTATE_BUSY } from './sshkey.js';
 import { createLimiter } from './limiter.js';
@@ -74,7 +74,7 @@ export function createApp() {
     const out = [];
     if (action !== 'live') out.push(`thema ${o.version || 'nieuwste'}${o.rollback?.theme ? ' (terugrol)' : ''}`);
     if (o.parent_version) out.push(`woutr ${o.parent_version}${o.rollback?.parent ? ' (terugrol)' : ''}`);
-    const mail = o.mail ?? ((o.smtp || o.apply_smtp) ? 'smtp' : null);
+    const mail = mailOf(o);
     if (mail === 'smtp') out.push('SMTP toegepast');
     if (mail === 'resend') out.push('Resend toegepast');
     if (o.overwrite) out.push('--overwrite (bevestigd)');

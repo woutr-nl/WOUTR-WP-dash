@@ -18,7 +18,7 @@ const resendArgs = (site) =>
 
 // The mail option a run applies: 'smtp' | 'resend' | null. The fallback keeps runs stored
 // before options.mail existed (smtp / apply_smtp) applying SMTP.
-const mailOf = (options) => options.mail ?? ((options.smtp || options.apply_smtp) ? 'smtp' : null);
+export const mailOf = (options) => options.mail ?? ((options.smtp || options.apply_smtp) ? 'smtp' : null);
 
 export function buildArgs(action, site, options = {}) {
   const args = [site.client_slug, '--ssh', site.ssh_target, '--path', site.wp_path];
