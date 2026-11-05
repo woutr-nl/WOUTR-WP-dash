@@ -5,7 +5,7 @@ import config from './config.js';
 import { compareVersions } from './runs.js';
 
 const REPO = 'woutr-nl/WOUTR-WP';
-const TAG = /^woutr-plugin-v(\d+(?:\.\d+)*)$/;
+const TAG = /^woutr-plugin-v(\d+(?:\.\d+)+)$/;
 const ASSET = 'woutr-plugin.zip';
 const MAX_ASSET_SIZE = 50 * 1024 * 1024;
 const TTL = 5 * 60_000;

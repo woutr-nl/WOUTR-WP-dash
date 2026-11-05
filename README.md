@@ -164,3 +164,11 @@ Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. 
 npm ci
 npm test
 ```
+
+Eén echte pluginupdate van eind tot eind, deze app tegen de Bricks-testsite van WOUTR-WP (alleen GitHub
+nagebootst, de zip echt gedownload en geïnstalleerd; Docker nodig, WOUTR-WP naast deze repo of in `WOUTR_WP`):
+
+```sh
+../WOUTR-WP/tools/wp-test/setup-bricks.sh
+e2e/plugin-update.sh
+```
