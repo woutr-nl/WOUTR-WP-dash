@@ -1,7 +1,7 @@
 <%
   const v = (f) => site[f] ?? '';
   const e = (f) => errors[f] ? `<span class="error">${errors[f].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>` : '';
-  // Defaults (port 587, tls) are shown as empty so a Bricks site submits no SMTP values.
+  // SMTP defaults (port 587, tls) are shown as empty.
   const action = site.id ? `/sites/${site.id}` : '/sites';
   const THEME_LABEL = { block: 'Blokthema', bricks: 'Bricks' };
   const knownClient = clients.list?.find((c) => c.slug === site.client_slug && c.theme_type);
@@ -128,33 +128,50 @@
     </div>
   </fieldset>
 
-  <fieldset id="smtp">
-    <legend>SMTP <small>(optioneel, alleen bij een blokthema)</small></legend>
-    <%- e('smtp') %>
-    <label>SMTP-host
-      <input name="smtp_host" value="<%= v('smtp_host') %>"><%- e('smtp_host') %>
-    </label>
-    <label>SMTP-poort
-      <input name="smtp_port" inputmode="numeric" value="<%= String(v('smtp_port')) === '587' ? '' : v('smtp_port') %>" placeholder="587"><%- e('smtp_port') %>
-    </label>
-    <label>Versleuteling
-      <select name="smtp_encryption">
-        <option value="">standaard (tls)</option>
-        <% for (const opt of ['none', 'ssl', 'tls']) { %>
-          <option value="<%= opt %>" <%= opt !== 'tls' && v('smtp_encryption') === opt ? 'selected' : '' %>><%= opt %></option>
-        <% } %>
-      </select><%- e('smtp_encryption') %>
-    </label>
-    <label>SMTP-gebruiker
-      <input name="smtp_user" value="<%= v('smtp_user') %>"><%- e('smtp_user') %>
-    </label>
-    <label>Afzenderadres
-      <input name="smtp_from" type="email" value="<%= v('smtp_from') %>"><%- e('smtp_from') %>
-    </label>
-    <label>Afzendernaam
-      <input name="smtp_from_name" value="<%= v('smtp_from_name') %>"><%- e('smtp_from_name') %>
-    </label>
-    <%- include('secret', { field: 'smtp_pass', label: 'SMTP-wachtwoord', stored: site.has_smtp_pass, site, error: e('smtp_pass') }) %>
+  <fieldset id="mail">
+    <legend>Mail</legend>
+    <% const mailMode = v('mail_mode') || 'none'; %>
+    <% for (const [val, lbl] of [['none', 'Geen'], ['smtp', 'SMTP'], ['resend', 'Resend']]) { %>
+      <label class="inline"><input type="radio" name="mail_mode" value="<%= val %>" <%= mailMode === val ? 'checked' : '' %>> <%= lbl %></label>
+    <% } %>
+    <%- e('mail_mode') %>
+    <p id="mail_bricks" class="notice" <%= v('theme_type') === 'bricks' ? '' : 'hidden' %>>Bij een Bricks-thema werken de mailinstellingen via de WOUTR-plugin, die bij een nieuwe deploy wordt geïnstalleerd. Een bestaande Bricks-site zonder de plugin kan ze nog niet overnemen.</p>
+    <div id="mail_smtp">
+      <label>SMTP-host
+        <input name="smtp_host" value="<%= v('smtp_host') %>"><%- e('smtp_host') %>
+      </label>
+      <label>SMTP-poort
+        <input name="smtp_port" inputmode="numeric" value="<%= String(v('smtp_port')) === '587' ? '' : v('smtp_port') %>" placeholder="587"><%- e('smtp_port') %>
+      </label>
+      <label>Versleuteling
+        <select name="smtp_encryption">
+          <option value="">standaard (tls)</option>
+          <% for (const opt of ['none', 'ssl', 'tls']) { %>
+            <option value="<%= opt %>" <%= opt !== 'tls' && v('smtp_encryption') === opt ? 'selected' : '' %>><%= opt %></option>
+          <% } %>
+        </select><%- e('smtp_encryption') %>
+      </label>
+      <label>SMTP-gebruiker
+        <input name="smtp_user" value="<%= v('smtp_user') %>"><%- e('smtp_user') %>
+      </label>
+      <label>Afzenderadres
+        <input name="smtp_from" type="email" value="<%= v('smtp_from') %>"><%- e('smtp_from') %>
+      </label>
+      <label>Afzendernaam
+        <input name="smtp_from_name" value="<%= v('smtp_from_name') %>"><%- e('smtp_from_name') %>
+      </label>
+      <%- include('secret', { field: 'smtp_pass', label: 'SMTP-wachtwoord', stored: site.has_smtp_pass, site, error: e('smtp_pass') }) %>
+    </div>
+    <div id="mail_resend">
+      <p class="empty">Gebruik een API-sleutel die in Resend tot het domein van deze site is beperkt; het domein moet in Resend geverifieerd zijn. Het dashboard controleert dit niet.</p>
+      <label>Afzenderadres
+        <input name="resend_from" type="email" value="<%= v('resend_from') %>"><%- e('resend_from') %>
+      </label>
+      <label>Afzendernaam
+        <input name="resend_from_name" value="<%= v('resend_from_name') %>"><%- e('resend_from_name') %>
+      </label>
+      <%- include('secret', { field: 'resend_api_key', label: 'Resend API-sleutel', stored: site.has_resend_key, site, error: e('resend_api_key'), reveal: false }) %>
+    </div>
   </fieldset>
 
   <div class="bar">
@@ -172,16 +189,27 @@
     const $ = (id) => document.getElementById(id);
     const LABEL = { block: 'Blokthema', bricks: 'Bricks' };
 
-    // Theme type follows the chosen client; Bricks sites take no SMTP settings (the server rejects them too).
+    // Theme type follows the chosen client; Bricks sites get a note on how mail works there.
     const slug = $('client_slug');
     const themeOf = () => slug.selectedOptions?.[0]?.dataset.theme ?? slug.dataset.theme ?? '';
     const syncTheme = () => {
       const t = themeOf();
       $('theme_label').value = LABEL[t] ?? '—';
-      $('smtp').disabled = t === 'bricks';
+      $('mail_bricks').hidden = t !== 'bricks';
     };
     slug.addEventListener('change', syncTheme);
     syncTheme();
+
+    // Only the chosen mail option is shown. Hidden, never disabled: the other option's
+    // fields still submit, so its stored values survive switching.
+    const mailModes = document.querySelectorAll('input[name=mail_mode]');
+    const syncMail = () => {
+      const mode = [...mailModes].find((r) => r.checked)?.value;
+      $('mail_smtp').hidden = mode !== 'smtp';
+      $('mail_resend').hidden = mode !== 'resend';
+    };
+    mailModes.forEach((r) => r.addEventListener('change', syncMail));
+    syncMail();
 
     // Submit is blocked while a list a new choice depends on failed to load.
     const blocks = { clients: data.isNew && !data.clients.list ? 'De klantenlijst is niet geladen.' : '' };

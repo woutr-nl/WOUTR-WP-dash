@@ -13,9 +13,12 @@ const smtpArgs = (site) => {
   return args;
 };
 
-// SMTP is sent on deploy whenever the site has it, on update only on request; never for Bricks.
-const sendsSmtp = (action, site, options) =>
-  site.theme_type !== 'bricks' && !!site.smtp_host && (action === 'deploy' || (action === 'update' && options.apply_smtp === true));
+const resendArgs = (site) =>
+  ['--resend-from', site.resend_from, ...(site.resend_from_name ? ['--resend-from-name', site.resend_from_name] : [])];
+
+// The mail option a run applies: 'smtp' | 'resend' | null. The fallback keeps runs stored
+// before options.mail existed (smtp / apply_smtp) applying SMTP.
+export const mailOf = (options) => options.mail ?? ((options.smtp || options.apply_smtp) ? 'smtp' : null);
 
 export function buildArgs(action, site, options = {}) {
   const args = [site.client_slug, '--ssh', site.ssh_target, '--path', site.wp_path];
@@ -31,7 +34,10 @@ export function buildArgs(action, site, options = {}) {
   if (action === 'deploy' || action === 'update') {
     if (options.version) args.push('--version', options.version);
     if (block && options.parent_version) args.push('--parent-version', options.parent_version);
-    if (sendsSmtp(action, site, options)) args.push(...smtpArgs(site));
+    // Never both: the commands reject SMTP and Resend flags together.
+    const mail = mailOf(options);
+    if (mail === 'smtp') args.push(...smtpArgs(site));
+    else if (mail === 'resend') args.push(...resendArgs(site));
   }
   if (action === 'deploy' && options.overwrite === true) args.push('--overwrite');
   if (action === 'live' && options.force === true) args.push('--force');
@@ -42,7 +48,11 @@ export function buildEnvNames(action, site, options = {}) {
   const names = [];
   if (action === 'deploy' && site.db_pass_enc) names.push('WP_DB_PASS');
   if (action === 'deploy' && site.theme_type === 'bricks') names.push('BRICKS_LICENSE_KEY');
-  if (sendsSmtp(action, site, options) && site.smtp_pass_enc) names.push('WOUTR_SMTP_PASS');
+  if (action === 'deploy' || action === 'update') {
+    const mail = mailOf(options);
+    if (mail === 'smtp' && site.smtp_pass_enc) names.push('WOUTR_SMTP_PASS');
+    if (mail === 'resend' && site.resend_api_key_enc) names.push('WOUTR_RESEND_API_KEY');
+  }
   return names;
 }
 

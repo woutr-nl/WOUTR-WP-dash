@@ -1,6 +1,6 @@
 # WOUTR-WP-dash
 
-Webdashboard voor het beheren van WOUTR-klantsites. Het houdt per site de gegevens bij die de `WOUTR-WP`-commando's (`tools/deploy.sh`, `tools/update.sh`, `tools/live.sh`) als invoer nodig hebben. Geheimen (database- en SMTP-wachtwoord) worden versleuteld opgeslagen (AES-256-GCM).
+Webdashboard voor het beheren van WOUTR-klantsites. Het houdt per site de gegevens bij die de `WOUTR-WP`-commando's (`tools/deploy.sh`, `tools/update.sh`, `tools/live.sh`) als invoer nodig hebben. Geheimen (database- en SMTP-wachtwoord en de Resend API-sleutel) worden versleuteld opgeslagen (AES-256-GCM).
 
 Per site kan de beheerder vanuit de browser de drie `WOUTR-WP`-commando's starten (deployen, bijwerken/terugrollen, live gaan) en de geschiedenis van alle runs bekijken. Niemand heeft daarvoor een eigen SSH-sleutel, `gh`-login of de sitegegevens nodig.
 
@@ -57,6 +57,8 @@ Optioneel. Zonder koppeling werkt alles zoals hierboven: de publieke sleutel zet
 
 **Database**: met een hosting-account kies je *Nieuwe database aanmaken* (standaard voor een site zonder database) of een bestaande database van het account. Bij aanmaken maakt het dashboard na het opslaan een database en databasegebruiker `<account>_<klant-slug>` aan (met een volgnummer als die naam al bestaat; een bestaande database wordt nooit overschreven), met een gegenereerd sterk wachtwoord dat versleuteld wordt opgeslagen en alleen via **Toon** zichtbaar is. Mislukt het aanmaken, dan is de site toch opgeslagen en toont het bewerkformulier de reden; opnieuw opslaan probeert het opnieuw. Bij een bestaande database vul je zelf het wachtwoord in; DirectAdmin geeft dat niet terug.
 
+**Mail**: kies per site, voor blokthema én Bricks, **Geen**, **SMTP** of **Resend**; alleen de velden van de gekozen optie zijn zichtbaar. Een bestaande site met SMTP-instellingen staat op SMTP, elke andere op Geen. Bij Resend vul je een afzenderadres (verplicht), optioneel een afzendernaam, en een **eigen Resend API-sleutel per site** in (verplicht, tenzij er al een is opgeslagen). Beperk die sleutel in Resend tot het domein van de site, en verifieer dat domein in Resend; het dashboard controleert dit niet en praat zelf niet met Resend. De sleutel wordt versleuteld opgeslagen en daarna **nooit meer getoond** (geen **Toon**); vervangen kan, wissen met **Wissen** nadat je een andere mailoptie hebt gekozen. Wissel je van optie, dan blijven de waarden van de andere optie bewaard tot je ze wist, maar ze worden niet naar de commando's gestuurd. Bij een Bricks-site werken de mailinstellingen via de WOUTR-plugin, die een nieuwe deploy installeert; een bestaande Bricks-site zonder de plugin kan ze nog niet overnemen.
+
 **Bij opslaan** van een site met hosting-account zorgt het dashboard dat dat account SSH aan heeft (alleen als het pakket of de reseller dat toestaat) en dat de huidige publieke sleutel van het dashboard in de SSH-sleutels staat, één keer, met het label `woutr-dash`. Daarna draait automatisch de SSH-verbindingstest. Mislukt de installatie, dan is de site toch opgeslagen; het overzicht toont per site *geïnstalleerd* (met tijdstip en testresultaat), *mislukt* (met de reden), *geen hosting-account* of *geen resellerkoppeling*. Met **Opnieuw installeren** probeer je het opnieuw, bijvoorbeeld na het aanpassen van het pakket. Meerdere sites op één account krijgen de sleutel maar één keer.
 
 **Bij een nieuwe sleutel** zet het dashboard de nieuwe sleutel op elk hostingaccount van een site en verwijdert het daar de vorige dashboardsleutel. Sleutels worden alleen verwijderd als ze exact gelijk zijn aan een eerdere dashboardsleutel; andere sleutels op het account blijven onaangeroerd. De pagina SSH-sleutel toont daarna onder *Installatie per site* het resultaat per site.
@@ -97,9 +99,9 @@ Het volume `appdata` (`/data` in de container) bevat de checkout van `WOUTR-WP` 
 Op de pagina **Runs** van een site staan de knoppen **Deployen**, **Bijwerken** en **Live gaan**, het gegenereerde beheerderswachtwoord (knop **Toon**) en de geschiedenis van alle runs, nieuwste eerst. Het siteoverzicht toont per site de laatste run.
 
 - Het dashboard voert de **echte commando's** uit (`tools/deploy.sh`, `tools/update.sh`, `tools/live.sh`) uit een checkout van `woutr-nl/WOUTR-WP`, die vóór elke run wordt bijgewerkt naar de huidige `main`. Een wijziging die daar wordt gemerged, wordt dus meteen gebruikt. Voor een Bricks-deploy wordt ook de Bricks-zip uit Git LFS opgehaald.
-- **Deployen**: kies optioneel een release van het child-thema en (blokthema) van `woutr`, of laat ze op *nieuwste*. SMTP wordt meegestuurd als de site dat heeft. Staat er al een site met inhoud (exitcode 3), dan stopt de run; het log laat zien wat er staat. Pas na een expliciete bevestiging dat de site **gewist** wordt, start een nieuwe run met `--overwrite`. Het gegenereerde beheerderswachtwoord wordt versleuteld bij de site opgeslagen.
-- **Bijwerken**: kies de versies uit de releases van de slug. Een oudere versie dan geïnstalleerd wordt vooraf als **terugrol** gemarkeerd. SMTP wordt alleen opnieuw toegepast als je dat aanvinkt.
-- **Live gaan**: toont per controle (`check_https`, `check_debug`, `check_smtp`) geslaagd, mislukt of niet gecontroleerd. Mislukt er een (exitcode 3), dan blijft de indexering uit; alleen via **Toch live gaan** (met bevestiging) volgt een run met `--force`.
+- **Deployen**: kies optioneel een release van het child-thema en (blokthema) van `woutr`, of laat ze op *nieuwste*. De gekozen mailoptie (SMTP of Resend) wordt automatisch meegestuurd, bij beide thematypes. Staat er al een site met inhoud (exitcode 3), dan stopt de run; het log laat zien wat er staat. Pas na een expliciete bevestiging dat de site **gewist** wordt, start een nieuwe run met `--overwrite`. Het gegenereerde beheerderswachtwoord wordt versleuteld bij de site opgeslagen.
+- **Bijwerken**: kies de versies uit de releases van de slug. Een oudere versie dan geïnstalleerd wordt vooraf als **terugrol** gemarkeerd. De gekozen mailoptie wordt alleen opnieuw toegepast als je het vakje aanvinkt (het noemt de optie, SMTP of Resend); de site schakelt dan over naar die optie. Op een Bricks-site zonder de WOUTR-plugin mislukt dat met de melding van het commando, in log en melding, en verandert er niets; een nieuwe deploy installeert de plugin. In de geschiedenis staat *SMTP toegepast* of *Resend toegepast*.
+- **Live gaan**: toont per controle (`check_https`, `check_debug`, `check_smtp`) geslaagd, mislukt of niet gecontroleerd. `check_smtp` controleert dat mailbezorging is ingesteld, via SMTP of Resend; op een Bricks-site zonder de WOUTR-plugin is die niet gecontroleerd. Mislukt er een (exitcode 3), dan blijft de indexering uit; alleen via **Toch live gaan** (met bevestiging) volgt een run met `--force`.
 - Per site loopt maximaal één run tegelijk; een tweede wordt geweigerd. Een site met een lopende run kan niet worden verwijderd.
 - Het log (stderr van het commando) is tijdens de run live te volgen. Een run die werd afgebroken, bijvoorbeeld door een herstart van het dashboard, staat daarna als **onderbroken**.
 - **Inloggen op WordPress** (op de pagina Runs, zodra de site gedeployed is) laat `tools/login.sh` van WOUTR-WP via SSH een eenmalige inloglink voor de beheerder aanmaken en opent die in een nieuw tabblad, direct ingelogd in wp-admin. De link werkt één keer en verloopt na 5 minuten. Het dashboard slaat hem nergens op en logt hem niet; het staat ook niet in de geschiedenis.
@@ -107,7 +109,7 @@ Op de pagina **Runs** van een site staan de knoppen **Deployen**, **Bijwerken** 
 - **SSL aanvragen** (op de pagina Runs, voor een site met hosting-account en domein, zolang de resellerkoppeling is ingesteld) vraagt in DirectAdmin een gratis Let's Encrypt-certificaat aan voor `<domein>` en `www.<domein>`. Kan `www` niet worden gevalideerd (bijv. omdat het niet naar de server wijst), dan wordt alleen `<domein>` aangevraagd en zegt de uitkomst dat. Staat SSL uit voor het account, dan zet het dashboard het aan, en weer uit als de aanvraag mislukt. Staat er al een geldig certificaat, dan vraagt het dashboard eerst om bevestiging. Mislukt een **Live gaan**-run op `check_https`, dan staat de knop ook op die run; na een geslaagde aanvraag kun je daar opnieuw live gaan. De laatste uitkomst (tijd, namen, verloopdatum of de reden van mislukken) staat op de pagina Runs en in het siteoverzicht. Een aanvraag is geen run: hij telt niet mee voor de ene run per site en kan ook tijdens een run; per site loopt één aanvraag tegelijk. Verlengen doet DirectAdmin zelf.
 - Elke run bewaart actie, keuzes, start- en eindtijd, uitkomst, exitcode, het `key=value`-resultaat en het volledige log.
 
-**Geheimen** gaan alleen via omgevingsvariabelen naar de commando's (`WP_DB_PASS`, `WOUTR_SMTP_PASS`, `BRICKS_LICENSE_KEY`, `GH_TOKEN`), nooit als argument. De commando's krijgen geen andere variabelen van het dashboard mee. Alle geheimen (database-, SMTP- en Bricks-wachtwoord, SSH-sleutel, GitHub-token en het gegenereerde beheerderswachtwoord) worden in log en resultaat vervangen door `[geheim]`; het beheerderswachtwoord staat alleen versleuteld bij de site.
+**Geheimen** gaan alleen via omgevingsvariabelen naar de commando's (`WP_DB_PASS`, `WOUTR_SMTP_PASS`, `WOUTR_RESEND_API_KEY`, `BRICKS_LICENSE_KEY`, `GH_TOKEN`), nooit als argument; het SMTP-wachtwoord en de Resend-sleutel alleen bij een run die die mailoptie toepast. De commando's krijgen geen andere variabelen van het dashboard mee. Alle geheimen (database-, SMTP- en Bricks-wachtwoord, Resend API-sleutel, SSH-sleutel, GitHub-token en het gegenereerde beheerderswachtwoord) worden in log en resultaat vervangen door `[geheim]`; het beheerderswachtwoord staat alleen versleuteld bij de site.
 
 **SSH-hostsleutels**: bij de eerste verbinding met een server wordt diens hostsleutel vertrouwd en onthouden. Verandert die sleutel later, dan weigert SSH te verbinden en mislukt de run met een duidelijke melding. Klopt de nieuwe sleutel (bijv. na een serververhuizing), verwijder dan de oude regel van die host uit `/data/ssh/known_hosts` in de container: `docker compose exec app ssh-keygen -R <host> -f /data/ssh/known_hosts`.
 
@@ -116,6 +118,20 @@ Op de pagina **Runs** van een site staan de knoppen **Deployen**, **Bijwerken** 
 Elk uur controleert het dashboard elke gedeployde site over HTTP(S), zonder SSH en zonder iets op de site te veranderen: **Bereikbaar** (2xx/3xx binnen 10 seconden), **Certificaat** (geldig voor de host, waarschuwing binnen 14 dagen voor het verlopen) en, voor sites die ooit live zijn gegaan, **Indexering** (geen `noindex`). Het overzicht toont het laatste resultaat per site, de pagina Runs per controle, met de knop **Nu controleren**. De controle staat los van runs en komt niet in de geschiedenis.
 
 **Meldingen** (link in de menubalk, met het aantal open meldingen) ontstaan bij een mislukte of onderbroken run en bij een controle die twee keer achter elkaar faalt; een certificaatwaarschuwing meteen. Een melding lost zichzelf op zodra de controle slaagt of een latere run van dezelfde actie slaagt. **Afvinken** kan ook met de hand; een afgevinkt gezondheidsprobleem komt pas terug nadat de controle eerst weer is geslaagd. Opgeloste en afgevinkte meldingen blijven 30 dagen zichtbaar. Er gaat niets buiten het dashboard (geen e-mail of chat).
+
+## Pluginupdates
+
+Het dashboard levert de updates van de WOUTR-plugin aan alle klantsites op `GET /woutr-plugin/update.json` en `GET /woutr-plugin/woutr-plugin.zip` (productie: `https://wpdash.woutr.io/woutr-plugin/update.json`). Deze twee routes zijn openbaar, zonder inloggen; naast `/login` zijn het de enige die zonder inloggen werken. WordPress kan de plugin niet van wordpress.org halen (hij staat daar niet) en niet rechtstreeks uit GitHub (de repository is privé en een token hoort niet op klantsites).
+
+**Bron**: de GitHub-releases van `woutr-nl/WOUTR-WP` met tag `woutr-plugin-v<versie>` en het bestand `woutr-plugin.zip`; concepten en pre-releases tellen niet mee, en de hoogste versie wint. Het dashboard bewaart de informatie en de zip ongeveer 5 minuten in het geheugen, zodat veel sites samen de limieten van GitHub niet raken. Een nieuwe release bereikt de sites zonder redeploy of herstart van het dashboard. Is GitHub onbereikbaar, dan blijft de laatst bekende versie beschikbaar; is er nog geen bekend, dan antwoorden de routes met `503` en blijven de sites gewoon op hun versie.
+
+**Hoe een release de sites bereikt**: de plugin op elke site controleert `update.json` via het eigen updatemechanisme van WordPress en installeert een nieuwe versie automatisch in de achtergrond-updaterun van WordPress. Eén GitHub-release werkt dus **alle** pluginsites bij, zonder verdere actie. Er is geen geheim of sleutel per site nodig, en het dashboard houdt niet bij welke site wat ophaalt.
+
+**Terug naar een eerdere versie** kan alleen door een **hogere** versie met de herstelde code te publiceren: sites gaan nooit omlaag in versie.
+
+**Adres van het dashboard wijzigen**: het adres zit in elke pluginrelease (`Update URI`). Laat bij een verhuizing het oude adres blijven werken of met een 301 doorsturen naar het nieuwe, tot een pluginrelease met het nieuwe adres overal is uitgerold. Per site kan `WOUTR_UPDATE_URL` in `wp-config.php` het gat overbruggen (zie de README van WOUTR-WP).
+
+Het GitHub-token komt niet in deze antwoorden, en ze geven niets anders uit het dashboard prijs: geen thema-zips, geen andere releases.
 
 ## Lokaal draaien
 
@@ -137,14 +153,22 @@ Na een wijziging in de code: opnieuw `docker build …` en `docker compose up`. 
 
 ## Beveiliging
 
-- Eén beheerder, geen registratie. Alles behalve de loginpagina vereist inloggen.
+- Eén beheerder, geen registratie. Alles behalve de loginpagina en de twee pluginupdate-routes (zie *Pluginupdates*) vereist inloggen.
 - Na 5 mislukte inlogpogingen binnen 15 minuten wordt dat IP-adres 15 minuten geblokkeerd; elke mislukte poging wordt bovendien vertraagd.
-- Opgeslagen wachtwoorden worden nooit in formulieren getoond. Alleen de knop **Toon** haalt de ontsleutelde waarde op.
-- Waarden die de commando's als optie zouden lezen (beginnend met `-`) of verkeerd zouden lezen (regeleindes, een SSH-doel dat geen `gebruiker@host` is, een URL zonder http(s)) worden geweigerd. SMTP-instellingen kunnen alleen bij een blokthema.
+- Opgeslagen wachtwoorden worden nooit in formulieren getoond. Alleen de knop **Toon** haalt de ontsleutelde waarde op; de Resend API-sleutel heeft die knop niet en is na opslaan niet meer te zien.
+- Waarden die de commando's als optie zouden lezen (beginnend met `-`) of verkeerd zouden lezen (regeleindes, een SSH-doel dat geen `gebruiker@host` is, een URL zonder http(s)) worden geweigerd.
 
 ## Tests
 
 ```sh
 npm ci
 npm test
+```
+
+Eén echte pluginupdate van eind tot eind, deze app tegen de Bricks-testsite van WOUTR-WP (alleen GitHub
+nagebootst, de zip echt gedownload en geïnstalleerd; Docker nodig, WOUTR-WP naast deze repo of in `WOUTR_WP`):
+
+```sh
+../WOUTR-WP/tools/wp-test/setup-bricks.sh
+e2e/plugin-update.sh
 ```
